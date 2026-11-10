@@ -7,3 +7,4 @@ PLAN.md
 .env.*
 !.env.example
 !.env.test
+.vercel

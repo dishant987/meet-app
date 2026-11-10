@@ -32,8 +32,12 @@ const schema = z.object({
   B2_REGION: z.string().trim().optional(),
 });
 
-// An empty line like "UPSTASH_REDIS_REST_URL=" means "not set".
-const parsed = schema.safeParse(Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== "")));
+// Trim stray spaces / Windows line endings (easy to paste into a hosting dashboard by accident);
+// an empty value like "UPSTASH_REDIS_REST_URL=" means "not set".
+const cleaned = Object.entries(process.env)
+  .map(([k, v]) => [k, v?.trim()] as const)
+  .filter(([, v]) => v !== undefined && v !== "");
+const parsed = schema.safeParse(Object.fromEntries(cleaned));
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:\n" + z.prettifyError(parsed.error));
   process.exit(1);
