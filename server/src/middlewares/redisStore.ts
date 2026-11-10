@@ -3,10 +3,10 @@ import type { IncrementResponse, Options, Store } from "express-rate-limit";
 import { env } from "../config/env.js";
 
 // One client for all limiters; null when Upstash isn't configured (local development → memory store).
-const redis =
-  env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
-    ? new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN })
-    : null;
+// Accepts both Upstash's own names and the KV_* names Vercel's Upstash integration adds.
+const url = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
+const token = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
+const redis = url && token ? new Redis({ url, token }) : null;
 
 // Atomic: add 1, start the window's timer on the first hit, return [hits, ms left].
 const INCREMENT = `

@@ -16,6 +16,9 @@ const schema = z.object({
   // Shared rate-limit counts (needed on Vercel, where many copies of the server run). Optional locally.
   UPSTASH_REDIS_REST_URL: z.string().trim().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().trim().optional(),
+  // Same thing under the names Vercel's Upstash integration creates.
+  KV_REST_API_URL: z.string().trim().url().optional(),
+  KV_REST_API_TOKEN: z.string().trim().optional(),
   // AI notes: all optional; at least one is needed for notes (checked when notes are made).
   MISTRAL_API_KEY: z.string().trim().optional(),
   GEMINI_API_KEY: z.string().trim().optional(),
@@ -29,7 +32,8 @@ const schema = z.object({
   B2_REGION: z.string().trim().optional(),
 });
 
-const parsed = schema.safeParse(process.env);
+// An empty line like "UPSTASH_REDIS_REST_URL=" means "not set".
+const parsed = schema.safeParse(Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== "")));
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:\n" + z.prettifyError(parsed.error));
   process.exit(1);

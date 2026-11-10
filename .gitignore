@@ -4,3 +4,6 @@ dist
 src/generated
 PLAN.md
 .claude
+.env.*
+!.env.example
+!.env.test

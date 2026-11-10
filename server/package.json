@@ -6,7 +6,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node --env-file=.env.test --import tsx --test \"src/**/*.test.ts\"",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
