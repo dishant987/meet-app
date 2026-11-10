@@ -1,0 +1,428 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router";
+import { toast } from "sonner";
+import {
+  AlertTriangle,
+  Calendar,
+  Check,
+  CircleHelp,
+  Clock,
+  Copy,
+  FileDown,
+  FileText,
+  Gavel,
+  ListChecks,
+  Loader2,
+  MicOff,
+  Pencil,
+  Printer,
+  RefreshCw,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import { cn } from "cn";
+import { Logo } from "@/components/Logo";
+import { UserMenu } from "@/components/UserMenu";
+import { Avatar } from "@/components/call/Avatar";
+import { ApiError, errorMessage, meetingsApi, type NotesContent, type NotesResponse, type TranscriptRow } from "@/lib/api";
+import { accessHeaders, getHostKey } from "@/lib/meetingAccess";
+import { downloadWord, toMarkdown, type NotesDoc } from "@/lib/notesExport";
+import { NotesEditor } from "@/components/notes/NotesEditor";
+import { Recordings } from "@/components/notes/Recordings";
+
+const fmtTime = (d: string) => new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function dateLine(m: NotesResponse["meeting"]) {
+  const start = m.startedAt ?? m.createdAt;
+  if (!start) return "";
+  const day = new Date(start).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  if (!m.endedAt) return day;
+  const mins = Math.max(1, Math.round((+new Date(m.endedAt) - +new Date(start)) / 60000));
+  const dur = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  return `${day} · ${fmtTime(start)}–${fmtTime(m.endedAt)} · ${dur}`;
+}
+
+/** Centered message card used for every non-ready state. */
+function StateCard({ icon, title, children }: { icon: React.ReactNode; title: string; children?: React.ReactNode }) {
+  return (
+    <div className="mx-auto mt-6 flex max-w-lg flex-col items-center gap-3 rounded-3xl border border-border bg-card p-8 text-center">
+      {icon}
+      <h2 className="text-lg font-semibold">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count?: number; children: React.ReactNode }) {
+  return (
+    <section className="break-inside-avoid rounded-3xl border border-border bg-card p-5 sm:p-6 print:rounded-none print:border-0 print:p-0 print:py-3">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+        {icon}
+        {title}
+        {count !== undefined && <span className="rounded-md bg-muted px-1.5 text-xs">{count}</span>}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function NotesView({ n }: { n: NotesContent }) {
+  return (
+    <div className="grid gap-4 print:block">
+      <Section icon={<Sparkles className="size-4 text-brand" />} title="Summary">
+        <p className="text-base leading-relaxed sm:text-lg">{n.summary || "—"}</p>
+      </Section>
+
+      {n.actionItems.length > 0 && (
+        <Section icon={<ListChecks className="size-4" />} title="Action items" count={n.actionItems.length}>
+          <ol className="divide-y divide-border">
+            {n.actionItems.map((a, i) => (
+              <li key={i} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:gap-4">
+                <span className="flex flex-1 gap-3">
+                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <span>{a.task}</span>
+                </span>
+                <span className="flex shrink-0 gap-2 pl-8 text-xs sm:pl-0">
+                  <span className={cn("rounded-lg px-2 py-1", a.owner ? "bg-brand/25 font-medium" : "bg-muted text-muted-foreground")}>
+                    {a.owner ?? "No owner"}
+                  </span>
+                  {a.dueDate && (
+                    <span className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1">
+                      <Calendar className="size-3" aria-hidden /> {a.dueDate}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2 print:block">
+        {n.decisions.length > 0 && (
+          <Section icon={<Gavel className="size-4" />} title="Decisions" count={n.decisions.length}>
+            <ul className="space-y-2">
+              {n.decisions.map((d, i) => (
+                <li key={i} className="flex gap-2.5">
+                  <Check className="mt-1 size-4 shrink-0 text-emerald-500" aria-hidden />
+                  {d}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+        {n.openQuestions.length > 0 && (
+          <Section icon={<CircleHelp className="size-4" />} title="Open questions" count={n.openQuestions.length}>
+            <ul className="space-y-2">
+              {n.openQuestions.map((q, i) => (
+                <li key={i} className="flex gap-2.5">
+                  <span className="mt-0.5 font-semibold text-amber-500" aria-hidden>
+                    ?
+                  </span>
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+      </div>
+
+      {n.keyPoints.length > 0 && (
+        <Section icon={<FileText className="size-4" />} title="Key points" count={n.keyPoints.length}>
+          <ul className="list-disc space-y-1.5 pl-5 marker:text-muted-foreground">
+            {n.keyPoints.map((k, i) => (
+              <li key={i}>{k}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function Transcript({ roomCode, headers }: { roomCode: string; headers: Record<string, string> }) {
+  const [rows, setRows] = useState<TranscriptRow[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    meetingsApi
+      .transcript(roomCode, headers)
+      .then(setRows)
+      .catch((e) => setError(errorMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- headers come from localStorage; load once
+  }, [roomCode]);
+
+  if (error) return <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't load the transcript">{error}</StateCard>;
+  if (!rows) return <Loader2 className="mx-auto mt-10 size-6 animate-spin text-muted-foreground" />;
+  if (rows.length === 0) return <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="No transcript" />;
+  return (
+    <ol className="space-y-1 rounded-3xl border border-border bg-card p-3 sm:p-4">
+      {rows.map((r, i) => {
+        const sameSpeaker = rows[i - 1]?.speakerName === r.speakerName;
+        return (
+          <li key={r.id} className={cn("flex gap-3 rounded-xl px-2 py-1.5", !sameSpeaker && "mt-2 first:mt-0")}>
+            <span className="w-9 shrink-0">{!sameSpeaker && <Avatar name={r.speakerName} size="sm" />}</span>
+            <div className="min-w-0 flex-1">
+              {!sameSpeaker && (
+                <p className="text-sm font-semibold">
+                  {r.speakerName} <span className="font-normal text-muted-foreground">{fmtTime(r.spokenAt)}</span>
+                </p>
+              )}
+              <p className="text-[15px] leading-relaxed">{r.text}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export function NotesPage() {
+  const { roomCode = "" } = useParams();
+  const [data, setData] = useState<NotesResponse | null>(null);
+  const [error, setError] = useState<{ title: string; message: string } | null>(null);
+  const [tab, setTab] = useState<"notes" | "transcript">("notes");
+  const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hostKey = getHostKey(roomCode);
+  const [headers] = useState(() => accessHeaders(roomCode));
+  const loaded = useRef(false);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await meetingsApi.notes(roomCode, headers));
+      loaded.current = true;
+      setError(null);
+    } catch (e) {
+      const forbidden = e instanceof ApiError && e.status === 403;
+      const notFound = e instanceof ApiError && e.status === 404;
+      // A hiccup while we already show something: keep polling quietly instead of replacing the page.
+      if (!forbidden && !notFound && loaded.current) return;
+      setError({
+        title: forbidden ? "These notes are private" : e instanceof ApiError && e.status === 404 ? "Meeting not found" : "Couldn't load the notes",
+        message: forbidden ? "Only people who joined this meeting, on this device, can open its notes." : errorMessage(e),
+      });
+    }
+  }, [roomCode, headers]);
+
+  // Load, then poll every 3s while notes are being written or the meeting is still going.
+  const waiting = !data || !data.notes || data.notes.status === "PENDING";
+  useEffect(() => {
+    const t = setTimeout(load, 0); // first load
+    return () => clearTimeout(t);
+  }, [load]);
+  useEffect(() => {
+    if (!waiting || error) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [waiting, error, load]);
+
+  async function regenerate() {
+    if (!hostKey) return;
+    try {
+      await meetingsApi.regenerateNotes(roomCode, hostKey);
+      await load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }
+
+  async function save(content: NotesContent) {
+    if (!hostKey) return;
+    const notes = await meetingsApi.updateNotes(roomCode, hostKey, content); // errors shown by the editor
+    setData((d) => (d ? { ...d, notes } : d));
+    setEditing(false);
+    toast.success("Notes saved");
+  }
+
+  const notes = data?.notes;
+  const doc: NotesDoc | null =
+    data && notes?.status === "READY"
+      ? { ...notes, meetingTitle: data.meeting.title, dateLine: dateLine(data.meeting), attendees: data.attendees }
+      : null;
+
+  async function copy() {
+    if (!doc) return;
+    try {
+      await navigator.clipboard.writeText(toMarkdown(doc));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Couldn't copy to the clipboard.");
+    }
+  }
+
+  const actionBtn =
+    "flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-medium transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none disabled:opacity-50 [&_svg]:size-4";
+
+  return (
+    <div className="min-h-dvh bg-background bg-[radial-gradient(ellipse_at_top_right,oklch(0.9_0.19_125/0.1),transparent_45%)] print:bg-none">
+      <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8 print:hidden">
+        <Link to="/" aria-label="MeetApp home" className="rounded-xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none">
+          <Logo />
+        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+        {doc && !editing && (
+          <>
+            <button type="button" onClick={copy} className={actionBtn} aria-label="Copy notes as text">
+              {copied ? <Check className="text-brand" /> : <Copy />}
+              <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadWord(doc).catch(() => toast.error("Couldn't create the Word file."))}
+              className={actionBtn}
+              aria-label="Download as Word"
+            >
+              <FileDown />
+              <span className="hidden sm:inline">Word</span>
+            </button>
+            <button type="button" onClick={() => print()} className={actionBtn} aria-label="Print or save as PDF">
+              <Printer />
+              <span className="hidden sm:inline">PDF</span>
+            </button>
+          </>
+        )}
+          <UserMenu />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-4xl px-4 pb-16 sm:px-8 print:max-w-none print:px-0">
+        {error ? (
+          <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title={error.title}>
+            <p className="text-sm text-muted-foreground">{error.message}</p>
+            <Link to="/" className="text-sm font-medium underline underline-offset-4">
+              Back to home
+            </Link>
+          </StateCard>
+        ) : !data ? (
+          <Loader2 className="mx-auto mt-24 size-8 animate-spin text-muted-foreground" role="status" aria-label="Loading notes" />
+        ) : (
+          <>
+            {/* heading */}
+            <div className="mb-6 space-y-3">
+              <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase print:hidden">
+                <span className="size-1.5 rounded-full bg-brand" aria-hidden /> Meeting notes
+                {notes?.edited && <span className="rounded-md bg-muted px-1.5 py-0.5 normal-case tracking-normal">Edited</span>}
+              </p>
+              <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+                {(notes?.status === "READY" && notes.title) || data.meeting.title}
+              </h1>
+              <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="size-4" aria-hidden /> {dateLine(data.meeting)}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Users className="size-4" aria-hidden /> {data.attendees.length} {data.attendees.length === 1 ? "person" : "people"}
+                </span>
+              </p>
+              <ul className="flex flex-wrap gap-2" aria-label="Attendees">
+                {data.attendees.map((a) => (
+                  <li key={a} className="flex items-center gap-2 rounded-xl border border-border bg-card py-1 pr-3 pl-1 text-sm">
+                    <Avatar name={a} size="sm" />
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* tabs */}
+            {notes?.status === "READY" && !editing && (
+              <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
+                <div role="tablist" className="flex rounded-2xl bg-muted p-1">
+                  {(["notes", "transcript"] as const).map((t) => (
+                    <button
+                      key={t}
+                      role="tab"
+                      type="button"
+                      aria-selected={tab === t}
+                      onClick={() => setTab(t)}
+                      className={cn(
+                        "rounded-xl px-4 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
+                        tab === t ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {t === "notes" ? "Notes" : `Transcript · ${data.lineCount}`}
+                    </button>
+                  ))}
+                </div>
+                {data.isHost && tab === "notes" && (
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setEditing(true)} className={actionBtn}>
+                      <Pencil /> <span className="hidden sm:inline">Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => confirm("Write the notes again from the transcript? Your edits will be replaced.") && regenerate()}
+                      className={actionBtn}
+                      aria-label="Write the notes again"
+                    >
+                      <RefreshCw /> <span className="hidden sm:inline">Redo</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {data.meeting.status === "ENDED" && !editing && tab === "notes" && <Recordings roomCode={roomCode} headers={headers} />}
+
+            {/* body */}
+            {!notes && data.meeting.status !== "ENDED" ? (
+              <StateCard icon={<Clock className="size-8 text-muted-foreground" />} title="The meeting is still going">
+                <p className="text-sm text-muted-foreground">
+                  Notes are written when the meeting ends — when the host ends it or everyone leaves. This page updates by itself.
+                </p>
+                <Link to={`/m/${roomCode}`} className="text-sm font-medium underline underline-offset-4">
+                  Back to the meeting
+                </Link>
+              </StateCard>
+            ) : !notes || notes.status === "PENDING" ? (
+              <StateCard icon={<Sparkles className="size-8 animate-pulse text-brand" />} title="Writing your notes…">
+                <p className="text-sm text-muted-foreground">
+                  Reading {data.lineCount} caption {data.lineCount === 1 ? "line" : "lines"} and pulling out the summary, decisions and
+                  action items. This usually takes under a minute.
+                </p>
+                <div className="mt-2 h-1.5 w-48 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-brand" />
+                </div>
+              </StateCard>
+            ) : notes.status === "EMPTY" ? (
+              <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="Nothing to summarize">
+                <p className="text-sm text-muted-foreground">
+                  No captions were recorded in this meeting, so there's no transcript to write notes from. Next time, turn on captions
+                  (the CC button) while you talk.
+                </p>
+              </StateCard>
+            ) : notes.status === "FAILED" ? (
+              <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't write the notes">
+                <p className="text-sm text-muted-foreground">
+                  The AI services didn't respond. The transcript is saved, so nothing is lost.
+                </p>
+                {data.isHost ? (
+                  <button type="button" onClick={regenerate} className={cn(actionBtn, "border-brand")}>
+                    <RefreshCw /> Try again
+                  </button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Ask the person who started the meeting to try again.</p>
+                )}
+              </StateCard>
+            ) : editing ? (
+              <NotesEditor initial={notes} onCancel={() => setEditing(false)} onSave={save} />
+            ) : tab === "notes" ? (
+              <>
+                <NotesView n={notes} />
+                <p className="mt-6 text-center text-xs text-muted-foreground">
+                  Written by AI ({notes.provider ?? "unknown"}) from {data.lineCount} caption lines. AI can make mistakes — check
+                  important details against the transcript.
+                </p>
+              </>
+            ) : (
+              <Transcript roomCode={roomCode} headers={headers} />
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}

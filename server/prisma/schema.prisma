@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+}
+
+// Phase 1: meetings are anonymous. hostId → User arrives with accounts in Phase 4.
+model Meeting {
+  id           String        @id @default(cuid())
+  title        String
+  roomCode     String        @unique
+  status       MeetingStatus @default(SCHEDULED)
+  createdAt    DateTime      @default(now())
+  startedAt    DateTime?
+  endedAt      DateTime?
+  // Secret given only to the creator's browser; needed to end the meeting for everyone. Accounts replace this in Phase 4.
+  hostKey      String        @default("")
+  hostId       String?
+  host         User?         @relation("HostedMeetings", fields: [hostId], references: [id], onDelete: SetNull)
+  participants Participant[]
+  transcript   Transcript[]
+  notes        Notes?
+  recordings   Recording[]
+}
+
+model Participant {
+  id        String   @id @default(cuid())
+  meetingId String
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  name      String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  joinedAt  DateTime @default(now())
+  lines     Transcript[]
+
+  @@index([meetingId])
+  @@index([userId])
+}
+
+// One finished caption line. Written by the speaker's own browser (Phase 2); used for AI notes (Phase 3).
+model Transcript {
+  id            String      @id @default(cuid())
+  meetingId     String
+  meeting       Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  speakerName   String
+  text          String
+  spokenAt      DateTime
+
+  @@index([meetingId, spokenAt])
+}
+
+enum NotesStatus {
+  PENDING
+  READY
+  FAILED
+  EMPTY // nothing was transcribed, so there is nothing to summarize
+}
+
+// AI meeting notes (Phase 3). Lists are JSON arrays; actionItems = [{ task, owner, dueDate }].
+model Notes {
+  id            String      @id @default(cuid())
+  meetingId     String      @unique
+  meeting       Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  status        NotesStatus @default(PENDING)
+  title         String      @default("")
+  summary       String      @default("")
+  keyPoints     Json        @default("[]")
+  decisions     Json        @default("[]")
+  actionItems   Json        @default("[]")
+  openQuestions Json        @default("[]")
+  provider      String?
+  error         String?
+  edited        Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+// Phase 4 accounts. Password is hashed with scrypt (never stored as text). Google-only accounts have no password.
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String?
+  googleId     String?       @unique
+  createdAt    DateTime      @default(now())
+  hosted       Meeting[]     @relation("HostedMeetings")
+  joined       Participant[]
+}
+
+enum RecordingStatus {
+  UPLOADING
+  READY
+  FAILED
+}
+
+// A recording made in the host's browser and uploaded straight to Backblaze B2 (the server never touches the video).
+model Recording {
+  id          String          @id @default(cuid())
+  meetingId   String
+  meeting     Meeting         @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  storageKey  String          @unique
+  mimeType    String
+  sizeBytes   Int             @default(0)
+  durationSec Int             @default(0)
+  status      RecordingStatus @default(UPLOADING)
+  createdAt   DateTime        @default(now())
+
+  @@index([meetingId])
+}
