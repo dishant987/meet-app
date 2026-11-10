@@ -36,6 +36,7 @@ Rules:
 - "owner" is the person who will do the task, only if the transcript makes that clear, else null.
 - "dueDate" only if a date or deadline was said, written as said (e.g. "Friday", "15 Nov"), else null.
 - If a section has nothing, return an empty array. Don't pad.
+- Plain text only: no markdown (no **bold**, no bullets or numbering inside the strings).
 
 Reply with ONLY a JSON object, no markdown, in exactly this shape:
 {
@@ -52,7 +53,9 @@ export function parseNotes(text: string): NotesContent {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("AI answer had no JSON object");
-  return notesContent.parse(JSON.parse(text.slice(start, end + 1)));
+  // Some models still add **bold** / __bold__; strip it so the page doesn't show raw asterisks.
+  const plain = (_k: string, v: unknown) => (typeof v === "string" ? v.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1") : v);
+  return notesContent.parse(JSON.parse(text.slice(start, end + 1), plain));
 }
 
 const hhmm = (d: Date) => d.toISOString().slice(11, 16);

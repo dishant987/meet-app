@@ -5,13 +5,12 @@ See [PLAN.md](PLAN.md) for the full plan and progress.
 
 ## Run it locally
 
-You need **Node.js 22+** and **Docker Desktop** (running).
+You need **Node.js 22+** and **PostgreSQL** installed on your computer.
 
-1. Start the local database and LiveKit video server:
-   ```bash
-   docker compose up -d
-   ```
-2. Start the backend (first time: install and create the tables):
+1. In `server/.env` (copy `server/.env.example`), set your local Postgres login in:
+   - `DATABASE_URL` → database `meetapp` (for development)
+   - `TEST_DATABASE_URL` → database `meetapp_test` (tests only; tests change its data)
+2. Create the tables and start the backend:
    ```bash
    cd server
    npm install
@@ -26,14 +25,14 @@ You need **Node.js 22+** and **Docker Desktop** (running).
    ```
 4. Open http://localhost:5173 → **New meeting** → copy the link → open it in a second browser window to join as another person.
 
-> The `.env` files in `server/` and `client/` are set up for local use. Copy `.env.example` if they're missing.
-> The local Postgres runs on port **5433** (so it doesn't clash with a Postgres already installed on 5432).
+The live site uses **Neon**; to update its tables after adding a migration, run `npm run db:deploy:prod` in `server`
+(uses `PROD_DIRECT_DATABASE_URL` from `server/.env`).
 
 ## Useful commands
 
 | Where | Command | What it does |
 |---|---|---|
-| server | `npm test` | API tests (needs `docker compose up -d`) |
+| server | `npm test` | API tests (uses `TEST_DATABASE_URL`, never Neon) |
 | server | `npm run typecheck` | TypeScript check |
 | server | `npm run db:migrate` | Create a migration after editing `prisma/schema.prisma` |
 | client | `npm run build` | Production build (also type-checks) |

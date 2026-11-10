@@ -6,11 +6,12 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc",
-    "test": "node --env-file=.env.test --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node --env-file=.env scripts/test.mjs",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
-    "build": "esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.js --log-level=warning"
+    "build": "esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.js --log-level=warning",
+    "db:deploy:prod": "node --env-file=.env scripts/migrate-prod.mjs"
   },
   "keywords": [],
   "type": "module",

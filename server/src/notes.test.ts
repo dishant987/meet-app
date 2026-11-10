@@ -158,3 +158,11 @@ test("host edits notes; others can't", async () => {
   const bad = await call("PATCH", `/meetings/${roomCode}/notes`, { hostKey, notes: { actionItems: "oops" } });
   assert.equal(bad.status, 400);
 });
+
+test("AI answers are cleaned: code fences and **bold** markdown removed, missing lists default to []", async () => {
+  const { parseNotes } = await import("./services/notes.service.js");
+  const n = parseNotes('Here you go:\n```json\n{"title":"T","summary":"Launch on **15 Nov** with __2 lakh__","keyPoints":["**Venue** booked"]}\n```');
+  assert.equal(n.summary, "Launch on 15 Nov with 2 lakh");
+  assert.deepEqual(n.keyPoints, ["Venue booked"]);
+  assert.deepEqual(n.decisions, []);
+});

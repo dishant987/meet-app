@@ -6,7 +6,7 @@ type Message = { role: "system" | "user"; content: string };
 // All four speak the OpenAI chat-completions format, so one function talks to any of them.
 // maxChars: rough prompt size the free plan accepts (Groq free = 8K tokens/minute).
 const PROVIDERS = [
-  { name: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-medium-latest", key: () => env.MISTRAL_API_KEY, maxChars: 300_000 },
+  { name: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "ministral-14b-latest" /* this account can't use mistral-small/medium (always rate-limited) */, key: () => env.MISTRAL_API_KEY, maxChars: 300_000 },
   { name: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: "gemini-3.5-flash", key: () => env.GEMINI_API_KEY, maxChars: 600_000 },
   { name: "groq", url: "https://api.groq.com/openai/v1/chat/completions", model: "openai/gpt-oss-120b", key: () => env.GROQ_API_KEY, maxChars: 20_000 },
   { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemma-4-31b-it:free", key: () => env.OPENROUTER_API_KEY, maxChars: 200_000 },
