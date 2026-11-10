@@ -1,0 +1,6 @@
+{
+  "name": "meet-app",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22.x || 24.x" }
+}

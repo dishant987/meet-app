@@ -1,9 +1,11 @@
 import type { Request } from "express";
 import rateLimit, { ipKeyGenerator, type Options } from "express-rate-limit";
 import { AppError } from "../utils/AppError.js";
+import { sharedStore } from "./redisStore.js";
 
-// shortcut: counts live in this server's memory, so they reset on restart and aren't shared between
-// instances. Fine for one Render instance; switch to a Redis store if you run several.
+// Counts are kept in Upstash Redis when it's configured (shared by all server copies on Vercel), otherwise
+// in this process's memory (fine on one machine). If Redis is unreachable we let requests through
+// (passOnStoreError) rather than lock everyone out.
 
 /** Signed-in people are counted per account (so an office sharing one IP isn't blocked together); guests per IP. */
 const byUserOrIp = (req: Request) => (req.user ? `user:${req.user.id}` : `ip:${ipKeyGenerator(req.ip ?? "unknown")}`);
@@ -15,8 +17,11 @@ function tooMany(req: Request) {
   return new AppError(429, "TOO_MANY_REQUESTS", `Too many attempts. Please wait ${wait} and try again.`, { retryAfterSeconds: seconds });
 }
 
+let limiterCount = 0;
 const base = (o: Partial<Options>) =>
   rateLimit({
+    store: sharedStore(`l${limiterCount++}`), // each limiter keeps its own counts
+    passOnStoreError: true,
     standardHeaders: "draft-8", // RateLimit + Retry-After headers
     legacyHeaders: false,
     keyGenerator: byUserOrIp,

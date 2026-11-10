@@ -13,6 +13,9 @@ const schema = z.object({
   JWT_SECRET: z.string().min(32, "must be at least 32 characters (see .env.example)"),
   // Google sign-in (optional). OAuth client ID from Google Cloud Console; same value as the client's VITE_GOOGLE_CLIENT_ID.
   GOOGLE_CLIENT_ID: z.string().trim().optional(),
+  // Shared rate-limit counts (needed on Vercel, where many copies of the server run). Optional locally.
+  UPSTASH_REDIS_REST_URL: z.string().trim().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().trim().optional(),
   // AI notes: all optional; at least one is needed for notes (checked when notes are made).
   MISTRAL_API_KEY: z.string().trim().optional(),
   GEMINI_API_KEY: z.string().trim().optional(),

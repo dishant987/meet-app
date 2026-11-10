@@ -39,7 +39,24 @@ You need **Node.js 22+** and **Docker Desktop** (running).
 | client | `npm run build` | Production build (also type-checks) |
 | client | `npx oxlint src` | Lint |
 
-## Going live (later)
+## Deploy to Vercel (app + API on one address)
 
-Replace in `server/.env`: `DATABASE_URL` → your Neon URL; `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` → your LiveKit Cloud project; `CLIENT_URL` → your Vercel URL.
-Set `VITE_API_URL` in the client to your Render URL.
+`vercel.json` builds both parts: the React app is served as static files and the Express API runs as one
+serverless function (`api/index.js` → `server/dist/app.js`) for every `/api/*` request.
+
+1. **Neon** (database): create a project, copy the **pooled** and **direct** connection strings. Create the tables once:
+   ```bash
+   cd server
+   DIRECT_DATABASE_URL="<direct string>" npx prisma migrate deploy
+   ```
+2. **Upstash** (shared rate limits): create a free Redis database, copy the REST URL and token.
+3. **Vercel**: Add New → Project → import this GitHub repo (framework: Other; settings come from `vercel.json`).
+   Environment variables (Production): everything from `server/.env.example` with real values, plus:
+   - `NODE_ENV=production`
+   - `CLIENT_URL=https://<your-app>.vercel.app`
+   - `DATABASE_URL` = Neon **pooled** string, `DIRECT_DATABASE_URL` = Neon **direct** string
+   - `VITE_GOOGLE_CLIENT_ID` = same as `GOOGLE_CLIENT_ID`
+   - do **not** set `VITE_API_URL` (the app then calls `/api` on its own address)
+4. After the first deploy, allow the live address:
+   - Google Cloud → OAuth client → Authorized JavaScript origins → add `https://<your-app>.vercel.app`
+   - Backblaze bucket browser rule (CORS) → add `https://<your-app>.vercel.app`

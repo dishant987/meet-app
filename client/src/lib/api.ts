@@ -1,7 +1,8 @@
 import axios, { AxiosError } from "axios";
 
 export const api = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}/api`,
+  // Production (Vercel): the API lives on the same address under /api. Local dev: the API runs on :4000.
+  baseURL: `${import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000")}/api`,
   withCredentials: true,
   timeout: 15_000,
 });

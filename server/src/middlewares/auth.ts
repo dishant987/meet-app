@@ -11,12 +11,12 @@ declare module "express-serve-static-core" {
 
 export const SESSION_COOKIE = "session";
 
-// httpOnly: page scripts can't read it. In production the app and API are on different sites, so the cookie
-// must be SameSite=None + Secure to be sent at all.
+// httpOnly: page scripts can't read it. The app and API share one address (Vercel), so SameSite=Lax works and
+// also stops other sites from sending it with their forms (CSRF). Secure (HTTPS only) in production.
 export const sessionCookie: CookieOptions = {
   httpOnly: true,
   secure: isProd,
-  sameSite: isProd ? "none" : "lax",
+  sameSite: "lax",
   path: "/",
   maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
 };

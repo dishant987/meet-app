@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../config/db.js";
 import { logger } from "../utils/logger.js";
+import { waitUntil } from "@vercel/functions";
 import { askAI } from "./ai.service.js";
 
 // What we ask the AI for, and what we store. Lenient: missing lists become [].
@@ -94,10 +95,13 @@ export async function startNotes(meetingId: string) {
     create: { meetingId, status: "PENDING" },
     update: { status: "PENDING", error: null },
   });
-  generate(meetingId).catch(async (err) => {
+  const job = generate(meetingId).catch(async (err) => {
     logger.error({ err, meetingId }, "Meeting notes failed");
     await prisma.notes
       .update({ where: { meetingId }, data: { status: "FAILED", error: String((err as Error).message).slice(0, 1000) } })
       .catch(() => {});
   });
+  // On Vercel the function would be frozen once the response is sent; waitUntil keeps it alive until the
+  // notes are written (up to the 5-minute limit). Elsewhere it's a no-op and the process just keeps running.
+  waitUntil(job);
 }

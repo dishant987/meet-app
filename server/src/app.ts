@@ -21,6 +21,11 @@ app.set("trust proxy", 1); // Render/Vercel sit behind a proxy; needed for corre
 app.use(
   pinoHttp({
     logger,
+    // Log only what's useful; never cookies, host keys or other headers (they would leak sessions into logs).
+    serializers: {
+      req: (req) => ({ id: req.id, method: req.method, url: req.url }),
+      res: (res) => ({ statusCode: res.statusCode }),
+    },
     genReqId: (req, res) => {
       const id = (req.headers["x-request-id"] as string) || randomUUID();
       res.setHeader("x-request-id", id);
