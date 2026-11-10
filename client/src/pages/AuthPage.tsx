@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { Captions, Loader2, NotebookPen, Video } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/lib/auth";
-import { ApiError, errorMessage } from "@/lib/api";
+import { errorMessage, fieldErrors as formFieldErrors } from "@/lib/api";
 import { GoogleButton, googleEnabled } from "@/components/GoogleButton";
 
 const field =
@@ -39,7 +39,8 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
       else await login(email, password);
       navigate(next, { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.details) setFieldErrors(err.details);
+      const fields = formFieldErrors(err);
+      if (fields) setFieldErrors(fields);
       else setError(errorMessage(err));
     } finally {
       setBusy(false);

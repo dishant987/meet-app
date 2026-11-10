@@ -38,6 +38,17 @@ api.interceptors.response.use(
   },
 );
 
+/** Photo paths from our API ("/api/users/…") need the API's address in front; Google photo URLs are already full. */
+export const assetUrl = (path: string | null | undefined) =>
+  !path ? undefined : path.startsWith("/") ? `${api.defaults.baseURL!.replace(/\/api$/, "")}${path}` : path;
+
+/** Per-field form errors ({ field: [message] }) if this error has them, else null (e.g. rate limits carry other details). */
+export function fieldErrors(err: unknown): Record<string, string[]> | null {
+  if (!(err instanceof ApiError) || !err.details) return null;
+  const entries = Object.entries(err.details).filter(([, v]) => Array.isArray(v) && typeof v[0] === "string");
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
 export const errorMessage = (err: unknown) =>
   err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
 

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 
-export type User = { id: string; name: string; email: string };
+export type User = { id: string; name: string; email: string; avatarUrl: string | null; hasPassword: boolean; google: boolean };
 
 type AuthState = {
   user: User | null;
@@ -11,6 +11,8 @@ type AuthState = {
   register: (name: string, email: string, password: string) => Promise<User>;
   loginWithGoogle: (credential: string) => Promise<User>;
   logout: () => Promise<void>;
+  /** After a profile change: replace the signed-in user with the server's copy. */
+  setUser: (u: User) => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -49,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, loginWithGoogle, logout }),
+    () => ({ user, loading, login, register, loginWithGoogle, logout, setUser }),
     [user, loading, login, register, loginWithGoogle, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

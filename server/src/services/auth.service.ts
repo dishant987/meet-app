@@ -9,16 +9,48 @@ const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) =>
 const secret = new TextEncoder().encode(env.JWT_SECRET);
 export const SESSION_DAYS = 30;
 
-export type PublicUser = { id: string; name: string; email: string };
-const publicUser = (u: PublicUser): PublicUser => ({ id: u.id, name: u.name, email: u.email });
+export type PublicUser = { id: string; name: string; email: string; avatarUrl: string | null; hasPassword: boolean; google: boolean };
+
+// Fields needed to build a PublicUser (never the password hash or the photo bytes).
+export const USER_FIELDS = {
+  id: true,
+  name: true,
+  email: true,
+  passwordHash: true,
+  googleId: true,
+  avatarType: true,
+  avatarVersion: true,
+  pictureUrl: true,
+} as const;
+type UserRow = {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string | null;
+  googleId: string | null;
+  avatarType: string | null;
+  avatarVersion: number;
+  pictureUrl: string | null;
+};
+/** Uploaded photo (served by our API, versioned so browsers can cache it forever), else Google's, else none. */
+export const avatarUrl = (u: Pick<UserRow, "id" | "avatarType" | "avatarVersion" | "pictureUrl">) =>
+  u.avatarType ? `/api/users/${u.id}/avatar?v=${u.avatarVersion}` : u.pictureUrl;
+export const publicUser = (u: UserRow): PublicUser => ({
+  id: u.id,
+  name: u.name,
+  email: u.email,
+  avatarUrl: avatarUrl(u),
+  hasPassword: !!u.passwordHash,
+  google: !!u.googleId,
+});
 
 // Stored as "scrypt$<salt>$<hash>" (base64url).
-async function hashPassword(password: string) {
+export async function hashPassword(password: string) {
   const salt = randomBytes(16);
   const hash = await scrypt(password, salt, 64);
   return `scrypt$${salt.toString("base64url")}$${hash.toString("base64url")}`;
 }
-async function verifyPassword(password: string, stored: string) {
+export async function verifyPassword(password: string, stored: string) {
   // (Google-only accounts have no password; login() compares against a dummy hash for them.)
   const [, salt, hash] = stored.split("$");
   if (!salt || !hash) return false;
@@ -30,7 +62,7 @@ async function verifyPassword(password: string, stored: string) {
 export async function register(name: string, email: string, password: string) {
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (existing) throw new AppError(409, "EMAIL_TAKEN", "An account with this email already exists. Sign in instead.");
-  const user = await prisma.user.create({ data: { name, email, passwordHash: await hashPassword(password) } });
+  const user = await prisma.user.create({ data: { name, email, passwordHash: await hashPassword(password) }, select: USER_FIELDS });
   return publicUser(user);
 }
 
@@ -38,7 +70,7 @@ export async function register(name: string, email: string, password: string) {
 const DUMMY_HASH = `scrypt$${randomBytes(16).toString("base64url")}$${randomBytes(64).toString("base64url")}`;
 
 export async function login(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findUnique({ where: { email }, select: USER_FIELDS });
   const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
   if (user && !user.passwordHash && user.googleId)
     throw new AppError(401, "USE_GOOGLE", "This account uses Google sign-in. Click \"Continue with Google\".");
@@ -60,8 +92,8 @@ export async function userFromToken(token: string): Promise<PublicUser | null> {
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
     if (!payload.sub) return null;
-    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, name: true, email: true } });
-    return user;
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: USER_FIELDS });
+    return user && publicUser(user);
   } catch {
     return null;
   }
@@ -76,7 +108,7 @@ const googleKeys = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2
  */
 export async function loginWithGoogle(credential: string, keys: JWTVerifyGetKey = googleKeys) {
   if (!env.GOOGLE_CLIENT_ID) throw new AppError(503, "GOOGLE_NOT_CONFIGURED", "Google sign-in isn't set up yet");
-  let claims: { sub?: string; email?: string; email_verified?: boolean; name?: string };
+  let claims: { sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string };
   try {
     ({ payload: claims } = await jwtVerify(credential, keys, {
       issuer: ["https://accounts.google.com", "accounts.google.com"],
@@ -90,10 +122,16 @@ export async function loginWithGoogle(credential: string, keys: JWTVerifyGetKey 
 
   const email = claims.email.toLowerCase();
   const name = (claims.name || email.split("@")[0]!).slice(0, 50);
-  const byGoogle = await prisma.user.findUnique({ where: { googleId: claims.sub } });
-  if (byGoogle) return publicUser(byGoogle);
+  // Google's photo is kept fresh on every sign-in; only https URLs from Google are trusted.
+  const pictureUrl = claims.picture?.startsWith("https://") ? claims.picture.slice(0, 500) : null;
+  const byGoogle = await prisma.user.findUnique({ where: { googleId: claims.sub }, select: { id: true } });
+  if (byGoogle)
+    return publicUser(await prisma.user.update({ where: { id: byGoogle.id }, data: { pictureUrl }, select: USER_FIELDS }));
   // Same verified email as an existing password account → link them (Google proved they own the email).
-  const byEmail = await prisma.user.findUnique({ where: { email } });
-  if (byEmail) return publicUser(await prisma.user.update({ where: { id: byEmail.id }, data: { googleId: claims.sub } }));
-  return publicUser(await prisma.user.create({ data: { name, email, googleId: claims.sub } }));
+  const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (byEmail)
+    return publicUser(
+      await prisma.user.update({ where: { id: byEmail.id }, data: { googleId: claims.sub, pictureUrl }, select: USER_FIELDS }),
+    );
+  return publicUser(await prisma.user.create({ data: { name, email, googleId: claims.sub, pictureUrl }, select: USER_FIELDS }));
 }

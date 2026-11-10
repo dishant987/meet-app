@@ -1,8 +1,8 @@
 import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
 import { env } from "../config/env.js";
 
-export async function createJoinToken(roomCode: string, identity: string, name: string) {
-  const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity, name, ttl: "6h" });
+export async function createJoinToken(roomCode: string, identity: string, name: string, attributes?: Record<string, string>) {
+  const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, { identity, name, ttl: "6h", attributes });
   // canUpdateOwnMetadata: lets a person set their own attributes (e.g. hand raised).
   at.addGrant({
     room: roomCode,

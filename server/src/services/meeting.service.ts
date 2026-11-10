@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import { closeRoom, createJoinToken, isRoomEmpty } from "./livekit.service.js";
 import { startNotes, type NotesContent } from "./notes.service.js";
 import { downloadUrl, storedSize, uploadUrl } from "./storage.service.js";
+import { avatarUrl } from "./auth.service.js";
 
 const letters = (n: number) => Array.from({ length: n }, () => String.fromCharCode(97 + randomInt(26))).join("");
 const newRoomCode = () => `${letters(3)}-${letters(4)}-${letters(3)}`; // e.g. abc-defg-hij
@@ -46,7 +47,12 @@ export async function joinMeeting(roomCode: string, name: string, userId?: strin
     return tx.participant.create({ data: { meetingId: meeting.id, name, userId }, select: { id: true } });
   });
 
-  const token = await createJoinToken(roomCode, participant.id, name);
+  // Signed-in people bring their profile photo into the call (shown when their camera is off).
+  const me = userId
+    ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, avatarType: true, avatarVersion: true, pictureUrl: true } })
+    : null;
+  const photo = me ? avatarUrl(me) : null;
+  const token = await createJoinToken(roomCode, participant.id, name, photo ? { avatar: photo } : undefined);
   // Signed-in creator joining from any device is the host (the host-key path is checked by the browser itself).
   const isHost = !!userId && (await prisma.meeting.count({ where: { id: meeting.id, hostId: userId } })) > 0;
   return { token, livekitUrl: env.LIVEKIT_URL, participantId: participant.id, meeting, isHost };

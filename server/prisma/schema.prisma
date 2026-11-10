@@ -93,6 +93,12 @@ model User {
   email        String        @unique
   passwordHash String?
   googleId     String?       @unique
+  // Profile photo: a small image (≤ 200 KB, resized in the browser) stored right here. Version busts caches.
+  avatar        Bytes?
+  avatarType    String?
+  avatarVersion Int          @default(0)
+  // Photo from Google, used when no photo was uploaded.
+  pictureUrl    String?
   createdAt    DateTime      @default(now())
   hosted       Meeting[]     @relation("HostedMeetings")
   joined       Participant[]

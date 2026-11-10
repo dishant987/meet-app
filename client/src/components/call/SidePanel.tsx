@@ -5,6 +5,7 @@ import { ArrowUp, Check, Hand, Link2, Mic, MicOff, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Avatar } from "./Avatar";
+import { assetUrl } from "@/lib/api";
 import { displayName } from "./ParticipantTile";
 import type { Panel } from "./ControlBar";
 
@@ -15,7 +16,7 @@ function PersonRow({ participant }: { participant: Participant }) {
   const name = displayName(participant);
   return (
     <li className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-white/[0.04]">
-      <Avatar name={name} size="sm" />
+      <Avatar name={name} size="sm" src={assetUrl(attributes?.avatar)} />
       <span className="min-w-0 flex-1 truncate text-sm">
         {name}
         {participant.isLocal && <span className="text-ink-500"> · you</span>}

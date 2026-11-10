@@ -10,6 +10,7 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotesPage } from "@/pages/NotesPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { MyMeetingsPage } from "@/pages/MyMeetingsPage";
+import { ProfilePage } from "@/pages/ProfilePage";
 import { AuthProvider } from "@/lib/auth";
 
 const router = createBrowserRouter([
@@ -19,6 +20,7 @@ const router = createBrowserRouter([
   { path: "/signin", element: <AuthPage mode="signin" /> },
   { path: "/signup", element: <AuthPage mode="signup" /> },
   { path: "/meetings", element: <MyMeetingsPage /> },
+  { path: "/profile", element: <ProfilePage /> },
   { path: "*", element: <NotFoundPage /> },
 ]);
 

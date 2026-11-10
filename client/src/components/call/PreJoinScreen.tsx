@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { deviceErrorToast } from "@/lib/deviceErrors";
 import { useAuth } from "@/lib/auth";
-import type { Meeting } from "@/lib/api";
+import { assetUrl, type Meeting } from "@/lib/api";
 import { Avatar } from "./Avatar";
 import { DockButton } from "./DockButton";
 
@@ -87,10 +87,10 @@ type Props = { meeting: Meeting; joining: boolean; onJoin: (choices: LocalUserCh
 
 export function PreJoinScreen({ meeting, joining, onJoin }: Props) {
   const { user } = useAuth();
-  // Signed in and no saved name yet → start with the account name.
+  // Signed in → always start with the profile name (still editable). Guests get the name they used last time.
   const [choices, setChoices] = useState(() => {
     const c = loadChoices();
-    return c.username || !user ? c : { ...c, username: user.name };
+    return user ? { ...c, username: user.name } : c;
   });
   const [nameError, setNameError] = useState("");
   const set = (patch: Partial<LocalUserChoices>) => setChoices((c) => ({ ...c, ...patch }));
@@ -146,7 +146,7 @@ export function PreJoinScreen({ meeting, joining, onJoin }: Props) {
           />
           {!showVideo && (
             <div className="flex h-full flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_50%_40%,rgb(255_255_255/0.05),transparent_65%)]">
-              <Avatar name={choices.username || "?"} />
+              <Avatar name={choices.username || "?"} src={user ? assetUrl(user.avatarUrl) : undefined} />
               <p className="px-4 text-center text-sm text-ink-300">
                 {!choices.videoEnabled
                   ? "Camera is off"

@@ -12,6 +12,7 @@ import { getHostKey, saveParticipantId } from "@/lib/meetingAccess";
 import { CallView } from "@/components/call/CallView";
 import { PreJoinScreen } from "@/components/call/PreJoinScreen";
 import { useRecorderState } from "@/lib/recorder";
+import { useAuth } from "@/lib/auth";
 
 type Stage =
   | { name: "loading" }
@@ -36,6 +37,7 @@ export function RoomPage() {
   const [stage, setStage] = useState<Stage>({ name: "loading" });
   const [joining, setJoining] = useState(false);
   const rec = useRecorderState();
+  const { user } = useAuth();
 
   useEffect(() => {
     let cancelled = false;
@@ -151,7 +153,8 @@ export function RoomPage() {
   if (stage.name === "prejoin")
     return (
       <Studio meeting={stage.meeting}>
-        <PreJoinScreen meeting={stage.meeting} joining={joining} onJoin={join} />
+        {/* key: re-open with the profile name/photo once we know the visitor is signed in */}
+        <PreJoinScreen key={user?.id ?? "guest"} meeting={stage.meeting} joining={joining} onJoin={join} />
       </Studio>
     );
 

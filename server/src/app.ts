@@ -9,7 +9,9 @@ import { logger } from "./utils/logger.js";
 import { health } from "./controllers/health.controller.js";
 import { meetingRoutes } from "./routes/meeting.routes.js";
 import { authRoutes } from "./routes/auth.routes.js";
+import { meRoutes, userRoutes } from "./routes/profile.routes.js";
 import { loadUser } from "./middlewares/auth.js";
+import { apiLimiter } from "./middlewares/rateLimit.js";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
 
 export const app = express();
@@ -31,10 +33,13 @@ app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 app.use(loadUser);
+app.use("/api", apiLimiter);
 
 app.get("/api/health", health);
 app.use("/api/auth", authRoutes);
 app.use("/api/meetings", meetingRoutes);
+app.use("/api/me", meRoutes);
+app.use("/api/users", userRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

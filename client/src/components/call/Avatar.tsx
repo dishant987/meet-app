@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "cn";
 
 // Gradient per person, picked from their name so it stays the same everywhere.
@@ -30,7 +31,29 @@ const SIZES = {
   lg: "size-20 rounded-[1.75rem] text-3xl sm:size-28 sm:rounded-[2.25rem] sm:text-4xl",
 };
 
-export function Avatar({ name, size = "lg", speaking }: { name: string; size?: keyof typeof SIZES; speaking?: boolean }) {
+export function Avatar({
+  name,
+  size = "lg",
+  speaking,
+  src,
+}: {
+  name: string;
+  size?: keyof typeof SIZES;
+  speaking?: boolean;
+  /** profile photo; falls back to initials if missing or it fails to load */
+  src?: string;
+}) {
+  const [broken, setBroken] = useState<string | null>(null);
+  if (src && broken !== src)
+    return (
+      <img
+        src={src}
+        alt=""
+        aria-hidden
+        onError={() => setBroken(src)}
+        className={cn("shrink-0 object-cover", SIZES[size], speaking && "animate-speak")}
+      />
+    );
   return (
     <div
       aria-hidden

@@ -11,6 +11,7 @@ import {
 } from "@livekit/components-react";
 import { cn } from "cn";
 import { Avatar } from "./Avatar";
+import { assetUrl } from "@/lib/api";
 
 export const displayName = (p: Participant) => p.name || p.identity;
 
@@ -105,7 +106,7 @@ export function ParticipantTile({ trackRef, pinned, onTogglePin, compact }: Prop
           <div className="relative flex items-center justify-center">
             {!micMuted && <VoiceRings participant={participant} compact={compact} />}
             <div className="relative">
-              <Avatar name={name} size={compact ? "md" : "lg"} />
+              <Avatar name={name} size={compact ? "md" : "lg"} src={assetUrl(attributes?.avatar)} />
             </div>
           </div>
         </div>
