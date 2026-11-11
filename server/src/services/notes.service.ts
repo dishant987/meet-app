@@ -128,7 +128,7 @@ export async function emailNotes(meetingId: string, opts: { force?: boolean } = 
       createdAt: true,
       notes: true,
       host: { select: { email: true } },
-      participants: { select: { user: { select: { email: true } } } },
+      participants: { where: { status: { in: ["ADMITTED", "REMOVED"] } }, select: { user: { select: { email: true } } } },
     },
   });
   if (!m.notes || m.notes.status !== "READY") throw new AppError(409, "NOTES_NOT_READY", "Notes aren't ready yet");

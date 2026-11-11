@@ -5,13 +5,14 @@ import { Logo } from "@/components/Logo";
 import { useAuth } from "@/lib/auth";
 import { errorMessage, fieldErrors as formFieldErrors } from "@/lib/api";
 import { GoogleButton, googleEnabled } from "@/components/GoogleButton";
+import { check, signInForm, signUpForm } from "@/lib/validation";
 
 const field =
   "h-12 w-full rounded-2xl border border-border bg-card px-4 placeholder:text-muted-foreground focus-visible:border-brand focus-visible:outline-none aria-invalid:border-destructive";
 
 /** Only allow redirects inside this app (no "?next=https://evil.com"). */
 function safeNext(next: string | null) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/meetings";
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 }
 
 export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
@@ -43,25 +44,21 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     setEmail(v.email);
     setPassword(v.password);
 
-    // Check here first: clear messages right away, no round trip to the server for empty fields.
-    const problems: Record<string, string[]> = {};
-    if (signup && !v.name) problems.name = ["Enter your name"];
-    if (!v.email) problems.email = ["Enter your email"];
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) problems.email = ["That doesn't look like an email address"];
-    if (!v.password) problems.password = ["Enter your password"];
-    else if (signup && v.password.length < 8) problems.password = ["Use at least 8 characters"];
+    // Check here first (same rules as the server): clear messages right away, no round trip.
+    const result = signup ? check(signUpForm, v) : check(signInForm, v);
     setError("");
-    setFieldErrors(problems);
-    const first = Object.keys(problems)[0];
-    if (first) {
-      document.getElementById(first)?.focus();
+    if (result.errors) {
+      setFieldErrors(Object.fromEntries(Object.entries(result.errors).map(([k, m]) => [k, [m]])));
+      document.getElementById(Object.keys(result.errors)[0]!)?.focus();
       return;
     }
+    setFieldErrors({});
+    const clean = result.data; // trimmed, email lower-cased
 
     setBusy(true);
     try {
-      if (signup) await register(v.name, v.email, v.password);
-      else await login(v.email, v.password);
+      if (signup) await register(v.name.trim(), clean.email, clean.password);
+      else await login(clean.email, clean.password);
       navigate(next, { replace: true });
     } catch (err) {
       const fields = formFieldErrors(err);

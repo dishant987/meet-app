@@ -26,6 +26,9 @@ model Meeting {
   hostKey      String        @default("")
   hostId       String?
   host         User?         @relation("HostedMeetings", fields: [hostId], references: [id], onDelete: SetNull)
+  // Host controls: "Ask to join" (people wait until the host lets them in) and lock (nobody new can join)
+  waitingRoom  Boolean       @default(false)
+  locked       Boolean       @default(false)
   participants Participant[]
   transcript   Transcript[]
   notes        Notes?
@@ -41,6 +44,11 @@ model Participant {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   joinedAt  DateTime @default(now())
   lines     Transcript[]
+  status    ParticipantStatus @default(ADMITTED)
+  isHost    Boolean  @default(false)
+  // Secret the waiting person's browser uses to ask "am I in yet?"; seenAt = last time it asked
+  ticket    String?
+  seenAt    DateTime?
 
   @@index([meetingId])
   @@index([userId])
@@ -140,4 +148,11 @@ model Recording {
   createdAt   DateTime        @default(now())
 
   @@index([meetingId])
+}
+
+enum ParticipantStatus {
+  ADMITTED
+  WAITING
+  DENIED
+  REMOVED
 }

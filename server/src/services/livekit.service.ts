@@ -1,4 +1,4 @@
-import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
+import { AccessToken, RoomServiceClient, TrackSource } from "livekit-server-sdk";
 import { env } from "../config/env.js";
 
 export async function createJoinToken(roomCode: string, identity: string, name: string, attributes?: Record<string, string>) {
@@ -32,4 +32,21 @@ export async function isRoomEmpty(roomCode: string) {
   } catch (err) {
     return /not.?found|does not exist/i.test(String((err as Error)?.message));
   }
+}
+
+const gone = (err: unknown) => /not.?found|does not exist/i.test(String((err as Error)?.message));
+
+/** Host mutes someone's microphone (they can turn it back on themselves). */
+export async function muteMicrophone(roomCode: string, identity: string) {
+  const client = rooms();
+  const person = await client.getParticipant(roomCode, identity).catch((err) => (gone(err) ? null : Promise.reject(err)));
+  const mics = (person?.tracks ?? []).filter((t) => t.source === TrackSource.MICROPHONE && !t.muted);
+  await Promise.all(mics.map((t) => client.mutePublishedTrack(roomCode, identity, t.sid, true)));
+}
+
+/** Host removes someone from the call. Already gone is fine. */
+export async function removeFromRoom(roomCode: string, identity: string) {
+  await rooms()
+    .removeParticipant(roomCode, identity)
+    .catch((err) => (gone(err) ? undefined : Promise.reject(err)));
 }

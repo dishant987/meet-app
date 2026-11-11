@@ -10,7 +10,10 @@ export const createMeetingBody = z.object({
 
 export const joinTokenBody = z.object({
   name: z.string().trim().min(1, "Name is required").max(50),
+  hostKey: z.string().max(100).optional(), // the creator's browser: skips the waiting room
 });
+export const idParams = roomCodeParams.extend({ id: z.string().min(1).max(40) });
+export const joinRequestBody = z.object({ ticket: z.string().min(1).max(100) });
 
 export const transcriptBody = z.object({
   participantId: z.string().min(1).max(40),
@@ -33,3 +36,8 @@ export const startRecordingBody = hostBody.extend({
   durationSec: z.number().int().min(0).max(24 * 3600),
 });
 export const recordingParams = roomCodeParams.extend({ id: z.string().min(1).max(40) });
+
+export const answerBody = hostBody.extend({ admit: z.boolean() });
+export const settingsBody = hostBody
+  .extend({ waitingRoom: z.boolean().optional(), locked: z.boolean().optional() })
+  .refine((b) => b.waitingRoom !== undefined || b.locked !== undefined, "Nothing to change");

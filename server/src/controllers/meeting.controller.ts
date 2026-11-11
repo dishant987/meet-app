@@ -13,7 +13,7 @@ export async function getByCode(req: Request<{ roomCode: string }>, res: Respons
 }
 
 export async function joinToken(req: Request<{ roomCode: string }>, res: Response) {
-  const data = await meetingService.joinMeeting(req.params.roomCode, req.body.name, req.user?.id);
+  const data = await meetingService.joinMeeting(req.params.roomCode, req.body.name, req.user?.id, req.body.hostKey);
   res.json({ success: true, data });
 }
 
@@ -72,4 +72,31 @@ export async function listRecordings(req: Request<{ roomCode: string }>, res: Re
 
 export async function emailNotes(req: Request<{ roomCode: string }>, res: Response) {
   res.json({ success: true, data: await meetingService.emailNotesAgain(req.params.roomCode, access(req)) });
+}
+
+export async function checkJoinRequest(req: Request<{ roomCode: string; id: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.checkJoinRequest(req.params.roomCode, req.params.id, req.body.ticket) });
+}
+
+export async function listWaiting(req: Request<{ roomCode: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.listWaiting(req.params.roomCode, access(req)) });
+}
+
+export async function answerJoinRequest(req: Request<{ roomCode: string; id: string }>, res: Response) {
+  res.json({ success: true, data: await meetingService.answerJoinRequest(req.params.roomCode, access(req), req.params.id, req.body.admit) });
+}
+
+export async function updateSettings(req: Request<{ roomCode: string }>, res: Response) {
+  const { waitingRoom, locked } = req.body;
+  res.json({ success: true, data: await meetingService.updateSettings(req.params.roomCode, access(req), { waitingRoom, locked }) });
+}
+
+export async function muteParticipant(req: Request<{ roomCode: string; id: string }>, res: Response) {
+  res.json({ success: true, data: await meetingService.muteParticipant(req.params.roomCode, access(req), req.params.id) });
+}
+
+export async function removeParticipant(req: Request<{ roomCode: string; id: string }>, res: Response) {
+  res.json({ success: true, data: await meetingService.removeParticipant(req.params.roomCode, access(req), req.params.id) });
 }

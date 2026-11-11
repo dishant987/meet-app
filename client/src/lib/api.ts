@@ -89,14 +89,33 @@ export type MyMeeting = Meeting & {
   notes: { status: Notes["status"]; title: string; summary: string } | null;
 };
 export type RecordingInfo = { id: string; mimeType: string; sizeBytes: number; durationSec: number; createdAt: string; playUrl: string; downloadUrl: string };
-export type JoinData = { token: string; livekitUrl: string; participantId: string; meeting: Meeting; isHost: boolean };
+export type JoinData = { waiting: false; token: string; livekitUrl: string; participantId: string; meeting: Meeting; isHost: boolean };
+/** "Ask to join" is on: wait with this ticket until the host lets you in. */
+export type JoinWaiting = { waiting: true; requestId: string; ticket: string; meeting: Meeting };
+export type WaitingPerson = { id: string; name: string; joinedAt: string; avatarUrl: string | null };
+export type HostState = { waitingRoom: boolean; locked: boolean; waiting: WaitingPerson[] };
+const hostHeaders = (hostKey?: string): Record<string, string> => (hostKey ? { "x-host-key": hostKey } : {});
 
 export const meetingsApi = {
   create: (title?: string) =>
     api.post<{ data: Meeting & { hostKey: string } }>("/meetings", { title }).then((r) => r.data.data),
   get: (roomCode: string) => api.get<{ data: Meeting }>(`/meetings/${roomCode}`).then((r) => r.data.data),
-  join: (roomCode: string, name: string) =>
-    api.post<{ data: JoinData }>(`/meetings/${roomCode}/token`, { name }).then((r) => r.data.data),
+  join: (roomCode: string, name: string, hostKey?: string) =>
+    api.post<{ data: JoinData | JoinWaiting }>(`/meetings/${roomCode}/token`, { name, hostKey }).then((r) => r.data.data),
+  checkRequest: (roomCode: string, requestId: string, ticket: string) =>
+    api
+      .post<{ data: JoinData | { waiting: true } }>(`/meetings/${roomCode}/requests/${requestId}`, { ticket })
+      .then((r) => r.data.data),
+  hostState: (roomCode: string, hostKey?: string) =>
+    api.get<{ data: HostState }>(`/meetings/${roomCode}/waiting`, { headers: hostHeaders(hostKey) }).then((r) => r.data.data),
+  answerRequest: (roomCode: string, requestId: string, admit: boolean, hostKey?: string) =>
+    api.post(`/meetings/${roomCode}/waiting/${requestId}`, { admit, hostKey }),
+  updateSettings: (roomCode: string, settings: { waitingRoom?: boolean; locked?: boolean }, hostKey?: string) =>
+    api.patch(`/meetings/${roomCode}/settings`, { ...settings, hostKey }),
+  muteParticipant: (roomCode: string, participantId: string, hostKey?: string) =>
+    api.post(`/meetings/${roomCode}/participants/${participantId}/mute`, { hostKey }),
+  removeParticipant: (roomCode: string, participantId: string, hostKey?: string) =>
+    api.post(`/meetings/${roomCode}/participants/${participantId}/remove`, { hostKey }),
   end: (roomCode: string, hostKey?: string) => api.post(`/meetings/${roomCode}/end`, { hostKey }),
   notes: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: NotesResponse }>(`/meetings/${roomCode}/notes`, { headers }).then((r) => r.data.data),
@@ -118,11 +137,7 @@ export const meetingsApi = {
     api.get<{ data: TranscriptRow[] }>(`/meetings/${roomCode}/transcript`, { headers }).then((r) => r.data.data),
 };
 
-/** Accepts a code ("abc-defg-hij") or a full meeting link and returns the code, or null. */
-export function parseRoomCode(input: string): string | null {
-  const match = input.trim().toLowerCase().match(/([a-z]{3}-[a-z]{4}-[a-z]{3})\/?$/);
-  return match ? match[1] : null;
-}
+export { parseRoomCode } from "./validation";
 
 export type TranscriptLine = { text: string; spokenAt: string };
 

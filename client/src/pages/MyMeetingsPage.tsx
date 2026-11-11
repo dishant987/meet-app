@@ -1,47 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router";
-import { toast } from "sonner";
-import { AlertTriangle, Loader2, Plus, Search, Video } from "lucide-react";
+import { Link } from "react-router";
+import { AlertTriangle, Loader2, Search, Video } from "lucide-react";
+import { PlusIcon, type PlusIconHandle } from "@animateicons/react/lucide/plus-icon";
+import { useIconHover } from "@/lib/useIconHover";
 import { cn } from "cn";
-import { Logo } from "@/components/Logo";
-import { UserMenu } from "@/components/UserMenu";
 import { Avatar } from "@/components/call/Avatar";
 import { useAuth } from "@/lib/auth";
 import { errorMessage, meetingsApi, type MyMeeting } from "@/lib/api";
-import { saveHostKey } from "@/lib/meetingAccess";
-
-function statusChip(m: MyMeeting) {
-  if (m.status !== "ENDED") return { text: "Live now", cls: "bg-brand text-ink-950" };
-  switch (m.notes?.status) {
-    case "READY":
-      return { text: "Notes ready", cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" };
-    case "PENDING":
-      return { text: "Writing notes…", cls: "bg-muted text-muted-foreground" };
-    case "FAILED":
-      return { text: "Notes failed", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400" };
-    case "EMPTY":
-      return { text: "No captions", cls: "bg-muted text-muted-foreground" };
-    default:
-      return { text: "Ended", cls: "bg-muted text-muted-foreground" };
-  }
-}
-
-function when(m: MyMeeting) {
-  const start = new Date(m.startedAt ?? m.createdAt!);
-  const date = start.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-  const time = start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (!m.endedAt || !m.startedAt) return `${date} · ${time}`;
-  const mins = Math.max(1, Math.round((+new Date(m.endedAt) - +start) / 60000));
-  return `${date} · ${time} · ${mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`}`;
-}
+import { statusChip, when } from "@/lib/meetingDisplay";
+import { useStartMeeting } from "@/lib/useStartMeeting";
 
 export function MyMeetingsPage() {
-  const { user, loading } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { busy, start } = useStartMeeting();
+  const plus = useIconHover<PlusIconHandle>();
   const [meetings, setMeetings] = useState<MyMeeting[] | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -59,30 +34,8 @@ export function MyMeetingsPage() {
     );
   }, [meetings, query]);
 
-  if (!loading && !user) return <Navigate to="/signin?next=/meetings" replace />;
-
-  async function newMeeting() {
-    setCreating(true);
-    try {
-      const m = await meetingsApi.create();
-      saveHostKey(m.roomCode, m.hostKey);
-      navigate(`/m/${m.roomCode}`);
-    } catch (e) {
-      toast.error(errorMessage(e));
-      setCreating(false);
-    }
-  }
-
   return (
-    <div className="min-h-dvh bg-background bg-[radial-gradient(ellipse_at_top_right,oklch(0.9_0.19_125/0.1),transparent_45%)]">
-      <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8">
-        <Link to="/" aria-label="MeetApp home" className="rounded-xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none">
-          <Logo />
-        </Link>
-        <UserMenu />
-      </header>
-
-      <main className="mx-auto w-full max-w-4xl px-4 pb-16 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">My meetings</h1>
@@ -90,11 +43,12 @@ export function MyMeetingsPage() {
           </div>
           <button
             type="button"
-            onClick={newMeeting}
-            disabled={creating}
+            onClick={start}
+            disabled={!!busy}
+            {...plus.hover}
             className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-brand px-5 font-semibold text-ink-950 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:opacity-60"
           >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} New meeting
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <PlusIcon ref={plus.ref} size={16} className="flex" />} New meeting
           </button>
         </div>
 
@@ -173,7 +127,6 @@ export function MyMeetingsPage() {
             })}
           </ul>
         )}
-      </main>
     </div>
   );
 }

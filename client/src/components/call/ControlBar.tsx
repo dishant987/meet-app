@@ -48,9 +48,11 @@ type Props = {
   captionsOn: boolean;
   onToggleCaptions: () => void;
   isHost: boolean;
+  /** Host only: people asking to join. */
+  waitingCount?: number;
 };
 
-export function ControlBar({ title, roomCode, panel, setPanel, unreadChat, participantCount, onReact, captionsOn, onToggleCaptions, isHost }: Props) {
+export function ControlBar({ title, roomCode, panel, setPanel, unreadChat, participantCount, onReact, captionsOn, onToggleCaptions, isHost, waitingCount = 0 }: Props) {
   const room = useRoomContext();
   const hostKey = getHostKey(roomCode);
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -230,21 +232,28 @@ export function ControlBar({ title, roomCode, panel, setPanel, unreadChat, parti
         {/* Phones have no room for a separate Chat button: this one opens chat when there are new messages,
             and the panel's tabs switch between People and Chat. */}
         <DockButton
-          label={`People (${participantCount})${unreadChat ? `, ${unreadChat} new messages` : ""}`}
+          label={`People (${participantCount})${waitingCount ? `, ${waitingCount} waiting to join` : ""}${unreadChat ? `, ${unreadChat} new messages` : ""}`}
           tone={panel === "people" ? "on" : "ghost"}
           aria-pressed={panel === "people"}
           onClick={() =>
-            unreadChat > 0 && matchMedia("(max-width: 639px)").matches ? setPanel("chat") : togglePanel("people")
+            waitingCount === 0 && unreadChat > 0 && matchMedia("(max-width: 639px)").matches ? setPanel("chat") : togglePanel("people")
           }
           badge={
-            <span
-              className={cn(
-                "absolute -top-1 -right-1 min-w-5 rounded-lg px-1 text-[11px] leading-5 font-semibold",
-                unreadChat > 0 ? "bg-brand text-ink-950 sm:bg-ink-700 sm:text-white" : "bg-ink-700 text-white",
-              )}
-            >
-              {participantCount}
-            </span>
+            waitingCount > 0 ? (
+              // someone is knocking: amber, pulsing, shows how many
+              <span className="absolute -top-1 -right-1 min-w-5 animate-pulse rounded-lg bg-amber-300 px-1 text-[11px] leading-5 font-semibold text-ink-950">
+                {waitingCount}
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "absolute -top-1 -right-1 min-w-5 rounded-lg px-1 text-[11px] leading-5 font-semibold",
+                  unreadChat > 0 ? "bg-brand text-ink-950 sm:bg-ink-700 sm:text-white" : "bg-ink-700 text-white",
+                )}
+              >
+                {participantCount}
+              </span>
+            )
           }
         >
           <Users />

@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ArrowRight, Captions, Loader2, NotebookPen, Plus, Video } from "lucide-react";
-import { errorMessage, meetingsApi, parseRoomCode } from "@/lib/api";
+import { errorMessage, meetingsApi } from "@/lib/api";
+import { check, joinCodeForm } from "@/lib/validation";
 import { Logo } from "@/components/Logo";
 import { UserMenu } from "@/components/UserMenu";
 import { saveHostKey } from "@/lib/meetingAccess";
@@ -33,9 +34,9 @@ export function HomePage() {
 
   function joinMeeting(e: FormEvent) {
     e.preventDefault();
-    const roomCode = parseRoomCode(code);
-    if (!roomCode) return setCodeError("Enter a code like abc-defg-hij or paste the meeting link");
-    navigate(`/m/${roomCode}`);
+    const result = check(joinCodeForm, { code });
+    if (result.errors) return setCodeError(result.errors.code!);
+    navigate(`/m/${result.data.code}`);
   }
 
   return (

@@ -1,13 +1,11 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, Navigate } from "react-router";
 import { toast } from "sonner";
 import { Camera, Check, KeyRound, Loader2, Mail, Trash2 } from "lucide-react";
-import { Logo } from "@/components/Logo";
-import { UserMenu } from "@/components/UserMenu";
 import { Avatar } from "@/components/call/Avatar";
 import { useAuth, type User } from "@/lib/auth";
 import { ApiError, api, assetUrl, errorMessage, fieldErrors } from "@/lib/api";
 import { squarePhoto } from "@/lib/image";
+import { changePasswordForm, check, profileNameForm } from "@/lib/validation";
 
 const field =
   "h-12 w-full rounded-2xl border border-border bg-background px-4 placeholder:text-muted-foreground focus-visible:border-brand focus-visible:outline-none aria-invalid:border-destructive";
@@ -103,10 +101,12 @@ function NameCard({ user, onSaved }: { user: User; onSaved: (u: User) => void })
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    const result = check(profileNameForm, { name });
+    if (result.errors) return setError(result.errors.name!);
     setBusy(true);
     setError("");
     try {
-      const { data } = await api.patch<{ data: User }>("/me", { name });
+      const { data } = await api.patch<{ data: User }>("/me", result.data);
       onSaved(data.data);
       toast.success("Name saved");
     } catch (err) {
@@ -156,13 +156,18 @@ function PasswordCard({ user, onSaved }: { user: User; onSaved: (u: User) => voi
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (next !== confirm) return setErrors({ confirm: "The two new passwords don't match" });
+    const result = check(changePasswordForm(user.hasPassword), {
+      currentPassword: user.hasPassword ? current : undefined,
+      newPassword: next,
+      confirm,
+    });
+    if (result.errors) return setErrors(result.errors);
     setBusy(true);
     setErrors({});
     try {
       const { data } = await api.post<{ data: User }>("/me/password", {
-        currentPassword: user.hasPassword ? current : undefined,
-        newPassword: next,
+        currentPassword: result.data.currentPassword,
+        newPassword: result.data.newPassword,
       });
       onSaved(data.data);
       setCurrent("");
@@ -223,18 +228,10 @@ function PasswordCard({ user, onSaved }: { user: User; onSaved: (u: User) => voi
 }
 
 export function ProfilePage() {
-  const { user, loading, setUser } = useAuth();
-  if (!loading && !user) return <Navigate to="/signin?next=/profile" replace />;
+  const { user, setUser } = useAuth();
 
   return (
-    <div className="min-h-dvh bg-background bg-[radial-gradient(ellipse_at_top_right,oklch(0.9_0.19_125/0.1),transparent_45%)]">
-      <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-8">
-        <Link to="/" aria-label="MeetApp home" className="rounded-xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none">
-          <Logo />
-        </Link>
-        <UserMenu />
-      </header>
-      <main className="mx-auto w-full max-w-2xl space-y-4 px-4 pb-16 sm:px-8">
+    <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8 sm:px-8">
         <div className="mb-2">
           <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
           <p className="text-muted-foreground">How you appear in meetings, and how you sign in.</p>
@@ -252,7 +249,6 @@ export function ProfilePage() {
             </p>
           </>
         )}
-      </main>
     </div>
   );
 }

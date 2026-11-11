@@ -5,6 +5,7 @@ import { Loader2, MailCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { api, errorMessage, fieldErrors } from "@/lib/api";
 import { useAuth, type User } from "@/lib/auth";
+import { check, forgotForm, resetForm } from "@/lib/validation";
 
 const field =
   "h-12 w-full rounded-2xl border border-border bg-card px-4 placeholder:text-muted-foreground focus-visible:border-brand focus-visible:outline-none aria-invalid:border-destructive";
@@ -36,10 +37,12 @@ export function ForgotPasswordPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const result = check(forgotForm, { email });
+    if (result.errors) return setError(result.errors.email!);
     setBusy(true);
     setError("");
     try {
-      const { data } = await api.post<{ data: { message: string } }>("/auth/forgot-password", { email });
+      const { data } = await api.post<{ data: { message: string } }>("/auth/forgot-password", result.data);
       setSent(data.data.message);
     } catch (err) {
       setError(fieldErrors(err)?.email?.[0] ?? errorMessage(err));
@@ -107,14 +110,18 @@ export function ResetPasswordPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (password !== confirm) return setError({ field: "confirm", message: "The two passwords don't match" });
+    const result = check(resetForm, { password, confirm });
+    if (result.errors) {
+      const [field, message] = Object.entries(result.errors)[0]!;
+      return setError({ field, message });
+    }
     setBusy(true);
     setError(null);
     try {
       const { data } = await api.post<{ data: User }>("/auth/reset-password", { token, password });
       setUser(data.data);
       toast.success("Password changed. You're signed in, and signed out everywhere else.");
-      navigate("/meetings", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       const f = fieldErrors(err);
       setError(f?.password ? { field: "password", message: f.password[0]! } : { message: errorMessage(err) });

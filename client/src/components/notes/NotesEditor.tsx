@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { errorMessage, type ActionItem, type NotesContent } from "@/lib/api";
+import { check, notesForm } from "@/lib/validation";
 
 const field =
   "w-full rounded-xl border border-border bg-background px-3 py-2 text-[15px] focus-visible:border-brand focus-visible:outline-none";
@@ -30,19 +31,21 @@ export function NotesEditor({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const result = check(notesForm, {
+      title,
+      summary,
+      keyPoints: lines(keyPoints),
+      decisions: lines(decisions),
+      openQuestions: lines(questions),
+      actionItems: items
+        .map((a) => ({ task: a.task.trim(), owner: a.owner?.trim() || null, dueDate: a.dueDate?.trim() || null }))
+        .filter((a) => a.task),
+    });
+    if (result.errors) return setError(Object.values(result.errors)[0]!);
     setSaving(true);
     setError("");
     try {
-      await onSave({
-        title: title.trim(),
-        summary: summary.trim(),
-        keyPoints: lines(keyPoints),
-        decisions: lines(decisions),
-        openQuestions: lines(questions),
-        actionItems: items
-          .map((a) => ({ task: a.task.trim(), owner: a.owner?.trim() || null, dueDate: a.dueDate?.trim() || null }))
-          .filter((a) => a.task),
-      });
+      await onSave(result.data);
     } catch (err) {
       setError(errorMessage(err)); // keep everything typed; nothing is lost
     } finally {

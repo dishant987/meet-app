@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { check, displayNameForm } from "@/lib/validation";
 import { MediaDeviceFailure, Track, type LocalAudioTrack, type LocalVideoTrack } from "livekit-client";
 import { useMediaDevices, usePreviewTracks, type LocalUserChoices } from "@livekit/components-react";
 import { useAudioLevel } from "@/lib/audioLevel";
@@ -123,9 +124,9 @@ export function PreJoinScreen({ meeting, joining, onJoin }: Props) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const username = choices.username.trim();
-    if (!username) return setNameError("Add your name so others know who joined");
-    if (username.length > 50) return setNameError("Keep your name under 50 characters");
+    const result = check(displayNameForm, { name: choices.username });
+    if (result.errors) return setNameError(result.errors.name!);
+    const username = result.data.name;
     const final = { ...choices, username };
     saveChoices(final);
     onJoin(final);

@@ -11,6 +11,8 @@ import { NotesPage } from "@/pages/NotesPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { MyMeetingsPage } from "@/pages/MyMeetingsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
+import { DashboardPage } from "@/pages/DashboardPage";
+import { AppShell } from "@/components/AppShell";
 import { ForgotPasswordPage, ResetPasswordPage } from "@/pages/PasswordPages";
 import { AuthProvider } from "@/lib/auth";
 
@@ -21,8 +23,15 @@ const router = createBrowserRouter([
   // key: Sign in and Sign up are the same component; a different key makes each page start empty
   { path: "/signin", element: <AuthPage key="signin" mode="signin" /> },
   { path: "/signup", element: <AuthPage key="signup" mode="signup" /> },
-  { path: "/meetings", element: <MyMeetingsPage /> },
-  { path: "/profile", element: <ProfilePage /> },
+  // signed-in area: sidebar layout
+  {
+    element: <AppShell />,
+    children: [
+      { path: "/dashboard", element: <DashboardPage /> },
+      { path: "/meetings", element: <MyMeetingsPage /> },
+      { path: "/profile", element: <ProfilePage /> },
+    ],
+  },
   { path: "/forgot-password", element: <ForgotPasswordPage /> },
   { path: "/reset-password", element: <ResetPasswordPage /> },
   { path: "*", element: <NotFoundPage /> },

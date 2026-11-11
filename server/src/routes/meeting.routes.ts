@@ -5,8 +5,12 @@ import { limit } from "../middlewares/rateLimit.js";
 import { requireUser } from "../middlewares/auth.js";
 import {
   createMeetingBody,
+  answerBody,
   hostBody,
+  idParams,
+  joinRequestBody,
   joinTokenBody,
+  settingsBody,
   recordingParams,
   roomCodeParams,
   startRecordingBody,
@@ -55,3 +59,11 @@ meetingRoutes.post(
 );
 meetingRoutes.get("/:roomCode/recordings", limit(30), validate({ params: roomCodeParams }), meeting.listRecordings);
 meetingRoutes.post("/:roomCode/notes/email", limit(3, 15 * 60_000), validate({ params: roomCodeParams, body: hostBody }), meeting.emailNotes);
+
+// Host controls. The waiting person's browser polls /requests/:id every ~2 s; the host's polls /waiting every ~3 s.
+meetingRoutes.post("/:roomCode/requests/:id", limit(90), validate({ params: idParams, body: joinRequestBody }), meeting.checkJoinRequest);
+meetingRoutes.get("/:roomCode/waiting", limit(90), validate({ params: roomCodeParams }), meeting.listWaiting);
+meetingRoutes.post("/:roomCode/waiting/:id", limit(60), validate({ params: idParams, body: answerBody }), meeting.answerJoinRequest);
+meetingRoutes.patch("/:roomCode/settings", limit(30), validate({ params: roomCodeParams, body: settingsBody }), meeting.updateSettings);
+meetingRoutes.post("/:roomCode/participants/:id/mute", limit(60), validate({ params: idParams, body: hostBody }), meeting.muteParticipant);
+meetingRoutes.post("/:roomCode/participants/:id/remove", limit(30), validate({ params: idParams, body: hostBody }), meeting.removeParticipant);

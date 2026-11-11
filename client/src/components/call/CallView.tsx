@@ -22,6 +22,7 @@ import { FloatingReactions, useReactions } from "./Reactions";
 import { useCaptions } from "./useCaptions";
 import { CaptionsOverlay, LanguagePicker } from "./CaptionsOverlay";
 import { stopRecording } from "@/lib/recorder";
+import { useHostControls, type HostControls } from "./useHostControls";
 
 const keyOf = (t: TrackReferenceOrPlaceholder) => `${t.participant.identity}:${t.source}`;
 
@@ -62,17 +63,18 @@ function useRoomNotifications(chatOpen: boolean, messages: { id: string; message
   }, [messages, chatOpen]);
 }
 
-export function CallView({
-  roomCode,
-  title,
-  participantId,
-  isHost,
-}: {
-  roomCode: string;
-  title: string;
-  participantId: string;
-  isHost: boolean;
-}) {
+type CallProps = { roomCode: string; title: string; participantId: string; isHost: boolean };
+
+export function CallView(props: CallProps) {
+  return props.isHost ? <HostCall {...props} /> : <Call {...props} host={null} />;
+}
+
+/** Separate component so only the host polls the host-only API. */
+function HostCall(props: CallProps) {
+  return <Call {...props} host={useHostControls(props.roomCode)} />;
+}
+
+function Call({ roomCode, title, participantId, isHost, host }: CallProps & { host: HostControls | null }) {
   // Leaving the call (or the meeting ending) stops a running recording so it uploads.
   useEffect(() => () => stopRecording(), []);
   const connection = useConnectionState();
@@ -170,6 +172,7 @@ export function CallView({
               unreadChat={unread}
               participants={participants}
               chat={{ messages: chatMessages, send, isSending }}
+              host={host}
             />
           )}
         </div>
@@ -182,6 +185,7 @@ export function CallView({
           setPanel={setPanel}
           unreadChat={unread}
           participantCount={participants.length}
+          waitingCount={host?.state?.waiting.length ?? 0}
           onReact={react}
           captionsOn={captions.enabled}
           onToggleCaptions={captions.toggle}
