@@ -54,9 +54,10 @@ export function RoomPage() {
       .catch((err) => {
         if (cancelled) return;
         const notFound = err instanceof ApiError && (err.status === 404 || err.status === 400);
+        const calledOff = err instanceof ApiError && err.code === "MEETING_CANCELLED";
         setStage({
           name: "error",
-          title: notFound ? "Meeting not found" : "Couldn't load meeting",
+          title: calledOff ? "This meeting was cancelled" : notFound ? "Meeting not found" : "Couldn't load meeting",
           message: errorMessage(err),
         });
       });

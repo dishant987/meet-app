@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import {
@@ -146,6 +147,34 @@ function NotesView({ n }: { n: NotesContent }) {
   );
 }
 
+/** Shaped like the notes page: breadcrumb, title, people, tabs, summary and to-do cards. */
+function NotesSkeleton() {
+  return (
+    <div role="status" aria-label="Loading notes" className="space-y-6">
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-10 w-2/3 max-w-md" />
+        <Skeleton className="h-4 w-72 max-w-full" />
+        <div className="flex flex-wrap gap-2">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-11 w-32 rounded-2xl" />
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-11 w-56 rounded-2xl" />
+        <Skeleton className="hidden h-11 w-48 rounded-2xl sm:block" />
+      </div>
+      <Skeleton className="h-40 rounded-3xl" />
+      <Skeleton className="h-56 rounded-3xl" />
+      <div className="grid gap-4 md:grid-cols-2">
+        <Skeleton className="h-36 rounded-3xl" />
+        <Skeleton className="h-36 rounded-3xl" />
+      </div>
+    </div>
+  );
+}
+
 function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Record<string, string>; meta: TranscriptMeta }) {
   const [rows, setRows] = useState<TranscriptRow[] | null>(null);
   const [error, setError] = useState("");
@@ -158,7 +187,20 @@ function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Re
   }, [roomCode]);
 
   if (error) return <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't load the transcript">{error}</StateCard>;
-  if (!rows) return <Loader2 className="mx-auto mt-10 size-6 animate-spin text-muted-foreground" />;
+  if (!rows)
+    return (
+      <div role="status" aria-label="Loading transcript" className="space-y-4 rounded-3xl border border-border bg-card p-4">
+        {[70, 90, 55, 80, 65].map((w, i) => (
+          <div key={i} className="flex gap-3">
+            <Skeleton className="size-9 shrink-0 rounded-xl" />
+            <div className="flex-1 space-y-2 pt-1">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3.5" style={{ width: `${w}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   if (rows.length === 0) return <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="No transcript" />;
   const dl = "flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none";
   return (
@@ -331,7 +373,7 @@ export function NotesPage() {
             </Link>
           </StateCard>
         ) : !data ? (
-          <Loader2 className="mx-auto mt-24 size-8 animate-spin text-muted-foreground" role="status" aria-label="Loading notes" />
+          <NotesSkeleton />
         ) : (
           <>
             {/* heading */}

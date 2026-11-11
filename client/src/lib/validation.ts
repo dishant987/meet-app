@@ -99,7 +99,7 @@ export const notesForm = z.object({
 /** Schedule a meeting: local date + time, length, and guests' emails (comma, space or new line between). */
 export const scheduleForm = z
   .object({
-    title: z.string().trim().max(100, "Keep the title under 100 characters"),
+    title: z.string().trim().min(1, "Give the meeting a title").max(100, "Keep the title under 100 characters"),
     date: z.string().min(1, "Pick a date"),
     time: z.string().min(1, "Pick a time"),
     durationMin: z.coerce.number().int().min(5).max(480),

@@ -111,3 +111,17 @@ export async function muteParticipant(req: Request<{ roomCode: string; id: strin
 export async function removeParticipant(req: Request<{ roomCode: string; id: string }>, res: Response) {
   res.json({ success: true, data: await meetingService.removeParticipant(req.params.roomCode, access(req), req.params.id) });
 }
+
+export async function getSchedule(req: Request<{ roomCode: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.getSchedule(req.params.roomCode, access(req)) });
+}
+
+export async function updateSchedule(req: Request<{ roomCode: string }>, res: Response) {
+  const { title, scheduledFor, durationMin, invitees, timeZone } = req.body;
+  res.json({ success: true, data: await meetingService.updateSchedule(req.params.roomCode, access(req), { title, scheduledFor, durationMin, invitees, timeZone }) });
+}
+
+export async function cancel(req: Request<{ roomCode: string }>, res: Response) {
+  res.json({ success: true, data: await meetingService.cancelMeeting(req.params.roomCode, access(req), req.body.timeZone) });
+}

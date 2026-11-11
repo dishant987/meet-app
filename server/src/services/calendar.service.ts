@@ -30,17 +30,22 @@ export type CalendarEvent = {
   url: string;
   organizer: { name: string; email: string };
   attendee: string;
+  /** 0 for the first invite; bigger on every change so calendars update the same event. */
+  sequence?: number;
+  /** REQUEST = invite or update; CANCEL = remove it from the guest's calendar. */
+  method?: "REQUEST" | "CANCEL";
 };
 
 export function inviteIcs(e: CalendarEvent, now = new Date()) {
   const end = new Date(e.start.getTime() + e.minutes * 60_000);
+  const cancel = e.method === "CANCEL";
   return (
     [
       "BEGIN:VCALENDAR",
       "PRODID:-//MeetApp//Meeting invite//EN",
       "VERSION:2.0",
       "CALSCALE:GREGORIAN",
-      "METHOD:REQUEST",
+      `METHOD:${cancel ? "CANCEL" : "REQUEST"}`,
       "BEGIN:VEVENT",
       `UID:${e.uid}`,
       `DTSTAMP:${icsTime(now)}`,
@@ -52,13 +57,9 @@ export function inviteIcs(e: CalendarEvent, now = new Date()) {
       `URL:${e.url}`,
       `ORGANIZER;CN=${icsText(e.organizer.name)}:mailto:${e.organizer.email}`,
       `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${e.attendee}`,
-      "SEQUENCE:0",
-      "STATUS:CONFIRMED",
-      "BEGIN:VALARM",
-      "TRIGGER:-PT10M",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:Meeting starts in 10 minutes",
-      "END:VALARM",
+      `SEQUENCE:${e.sequence ?? 0}`,
+      `STATUS:${cancel ? "CANCELLED" : "CONFIRMED"}`,
+      ...(cancel ? [] : ["BEGIN:VALARM", "TRIGGER:-PT10M", "ACTION:DISPLAY", "DESCRIPTION:Meeting starts in 10 minutes", "END:VALARM"]),
       "END:VEVENT",
       "END:VCALENDAR",
     ]

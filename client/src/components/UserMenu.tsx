@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useNavigate } from "react-router";
 import { ChevronsUpDown, Loader2 } from "lucide-react";
 import { LayoutDashboardIcon, type LayoutDashboardIconHandle } from "@animateicons/react/lucide/layout-dashboard-icon";
@@ -50,7 +51,7 @@ export function AccountMenu({ variant = "avatar" }: { variant?: "avatar" | "side
   const [open, setOpen] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  if (loading) return <span className="size-10" aria-hidden />;
+  if (loading) return variant === "sidebar" ? <Skeleton className="h-14 w-full rounded-xl" /> : <Skeleton className="size-9 rounded-xl" />;
 
   if (!user)
     return (

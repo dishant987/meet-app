@@ -128,12 +128,12 @@ export function notesEmail(meetingTitle: string, dateLine: string, n: NotesForEm
 }
 
 /** Invite to a scheduled meeting (the .ics calendar part is added by the caller). */
-export function inviteEmail(hostName: string, title: string, when: string, minutes: number, link: string): Omit<Email, "to"> {
+export function inviteEmail(hostName: string, title: string, when: string, minutes: number, link: string, updated = false): Omit<Email, "to"> {
   return {
-    subject: `Invitation: ${title} · ${when}`,
+    subject: `${updated ? "Updated invitation" : "Invitation"}: ${title} · ${when}`,
     html: layout(
       title,
-      `<p><b>${esc(hostName)}</b> invited you to a video meeting on MeetApp.</p>
+      `<p>${updated ? `<b>${esc(hostName)}</b> changed this meeting. Here are the new details.` : `<b>${esc(hostName)}</b> invited you to a video meeting on MeetApp.`}</p>
 <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:15px;margin:8px 0">
 <tr><td style="color:#5b5d68;padding:4px 16px 4px 0">When</td><td>${esc(when)}</td></tr>
 <tr><td style="color:#5b5d68;padding:4px 16px 4px 0">Length</td><td>${minutes} minutes</td></tr>
@@ -141,6 +141,20 @@ export function inviteEmail(hostName: string, title: string, when: string, minut
 </table>${button(link, "Join meeting")}<p style="color:#5b5d68;font-size:14px">Use the invite to add it to your calendar. No account or app needed to join.</p>`,
       `${hostName} invited you through MeetApp.`,
     ),
-    text: `${hostName} invited you to "${title}" on MeetApp.\n\nWhen: ${when}\nLength: ${minutes} minutes\nJoin: ${link}\n\nNo account or app needed to join.`,
+    text: `${updated ? `${hostName} changed "${title}". New details:` : `${hostName} invited you to "${title}" on MeetApp.`}\n\nWhen: ${when}\nLength: ${minutes} minutes\nJoin: ${link}\n\nNo account or app needed to join.`,
+  };
+}
+
+/** The meeting is off (cancelled, or this guest was removed). The .ics part removes it from their calendar. */
+export function cancelEmail(hostName: string, title: string, when: string, removed = false): Omit<Email, "to"> {
+  const what = removed ? `${esc(hostName)} removed you from this meeting.` : `${esc(hostName)} cancelled this meeting.`;
+  return {
+    subject: `${removed ? "Removed" : "Cancelled"}: ${title} · ${when}`,
+    html: layout(
+      `Cancelled: ${title}`,
+      `<p>${what}</p><p style="color:#5b5d68">It was planned for ${esc(when)}. Your calendar will remove it when you open the attached update.</p>`,
+      `${hostName} sent this through MeetApp.`,
+    ),
+    text: `${removed ? `${hostName} removed you from "${title}".` : `${hostName} cancelled "${title}".`}\nIt was planned for ${when}.`,
   };
 }

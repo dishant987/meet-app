@@ -6,6 +6,8 @@ import { requireUser } from "../middlewares/auth.js";
 import {
   createMeetingBody,
   answerBody,
+  cancelBody,
+  updateScheduleBody,
   hostBody,
   idParams,
   joinRequestBody,
@@ -70,3 +72,8 @@ meetingRoutes.post("/:roomCode/waiting/:id", limit(60), validate({ params: idPar
 meetingRoutes.patch("/:roomCode/settings", limit(30), validate({ params: roomCodeParams, body: settingsBody }), meeting.updateSettings);
 meetingRoutes.post("/:roomCode/participants/:id/mute", limit(60), validate({ params: idParams, body: hostBody }), meeting.muteParticipant);
 meetingRoutes.post("/:roomCode/participants/:id/remove", limit(30), validate({ params: idParams, body: hostBody }), meeting.removeParticipant);
+
+// Scheduled meetings: the host edits or cancels them before they start (guests get calendar updates)
+meetingRoutes.get("/:roomCode/schedule", limit(60), validate({ params: roomCodeParams }), meeting.getSchedule);
+meetingRoutes.patch("/:roomCode/schedule", limit(20), validate({ params: roomCodeParams, body: updateScheduleBody }), inviteLimiter, meeting.updateSchedule);
+meetingRoutes.post("/:roomCode/cancel", limit(20), validate({ params: roomCodeParams, body: cancelBody }), meeting.cancel);

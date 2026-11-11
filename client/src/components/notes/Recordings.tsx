@@ -1,4 +1,5 @@
 import { useEffect, useState, type SyntheticEvent } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Download, Film, VideoOff } from "lucide-react";
 import { meetingsApi, type RecordingInfo } from "@/lib/api";
 
@@ -31,7 +32,8 @@ export function Recordings({ roomCode, headers, isHost }: { roomCode: string; he
       .catch(() => setRecs([])); // recordings are optional; the notes still show
     // eslint-disable-next-line react-hooks/exhaustive-deps -- headers come from localStorage; load once
   }, [roomCode]);
-  if (!recs) return null; // still loading: no flash of the empty message
+  // still loading: a slim placeholder (most meetings have no recording, so no big video-shaped block)
+  if (!recs) return <Skeleton role="status" aria-label="Loading recording" className="mb-4 h-14 rounded-3xl print:hidden" />;
   if (recs.length === 0)
     return (
       <section className="mb-4 flex items-center gap-3 rounded-3xl border border-dashed border-border p-4 text-sm text-muted-foreground print:hidden">

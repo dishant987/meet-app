@@ -14,6 +14,7 @@ export const createMeetingBody = z
     timeZone: z.string().max(60).optional(), // host's zone, only for writing the time in the email
   })
   .refine((b) => !b.invitees?.length || b.scheduledFor, { path: ["invitees"], message: "Pick a date and time to send invites" })
+  .refine((b) => !b.scheduledFor || b.title, { path: ["title"], message: "Give the meeting a title" })
   .refine((b) => !b.scheduledFor || new Date(b.scheduledFor).getTime() > Date.now() - 5 * 60_000, {
     path: ["scheduledFor"],
     message: "Pick a time in the future",
@@ -67,3 +68,18 @@ export const answerBody = hostBody.extend({ admit: z.boolean() });
 export const settingsBody = hostBody
   .extend({ waitingRoom: z.boolean().optional(), locked: z.boolean().optional() })
   .refine((b) => b.waitingRoom !== undefined || b.locked !== undefined, "Nothing to change");
+
+const futureTime = z.iso.datetime({ offset: true }).refine((t) => new Date(t).getTime() > Date.now() - 5 * 60_000, "Pick a time in the future");
+
+/** Host changes a meeting that hasn't started. `invitees` is the whole new guest list. */
+export const updateScheduleBody = hostBody
+  .extend({
+    title: z.string().trim().min(1, "Give the meeting a title").max(100).optional(),
+    scheduledFor: futureTime.optional(),
+    durationMin: z.number().int().min(5).max(480).optional(),
+    invitees: z.array(z.string().trim().toLowerCase().pipe(z.email("Enter valid email addresses"))).max(20, "Invite up to 20 people").optional(),
+    timeZone: z.string().max(60).optional(),
+  })
+  .refine((b) => b.title !== undefined || b.scheduledFor !== undefined || b.durationMin !== undefined || b.invitees !== undefined, "Nothing to change");
+
+export const cancelBody = hostBody.extend({ timeZone: z.string().max(60).optional() });

@@ -1,33 +1,83 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { CalendarPlus, Loader2 } from "lucide-react";
+import { CalendarCheck, CalendarPlus, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage, fieldErrors, meetingsApi } from "@/lib/api";
-import { saveHostKey } from "@/lib/meetingAccess";
+import { getHostKey, saveHostKey } from "@/lib/meetingAccess";
 import { check, scheduleForm, type FormErrors } from "@/lib/validation";
 
 const field =
   "h-11 w-full rounded-2xl border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:border-brand focus-visible:outline-none aria-invalid:border-destructive";
 const DURATIONS = [15, 30, 45, 60, 90, 120];
+const lengthLabel = (d: number) => (d < 60 ? `${d} min` : `${Math.floor(d / 60)} h${d % 60 ? ` ${d % 60} min` : ""}`);
+const pad = (n: number) => String(n).padStart(2, "0");
+const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const localTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 
 /** Next half hour, as the form's starting date/time (local). */
 function nextSlot() {
   const d = new Date(Date.now() + 30 * 60_000);
   d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+  return { date: localDate(d), time: localTime(d) };
 }
+const blank = () => ({ title: "", ...nextSlot(), durationMin: "30", guests: "" });
 
-/** "Schedule" button + form: pick a time, add guests, they get an email with a calendar invite. */
-export function ScheduleDialog({ trigger, onScheduled }: { trigger: ReactNode; onScheduled?: () => void }) {
-  const [open, setOpen] = useState(false);
+type Props = {
+  /** Opens the dialog (schedule mode). Leave out when the parent controls `open`. */
+  trigger?: ReactNode;
+  /** Edit an existing meeting instead of scheduling a new one. */
+  editRoomCode?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onScheduled?: () => void;
+};
+
+/**
+ * Schedule a meeting (guests get a calendar invite) or edit one that hasn't started
+ * (guests get an update to the same calendar event; removed guests get a cancellation).
+ */
+export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenChange, onScheduled }: Props) {
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (o: boolean) => (onOpenChange ? onOpenChange(o) : setOpenState(o));
+  const editing = !!editRoomCode;
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
-  const [form, setForm] = useState(() => ({ title: "", ...nextSlot(), durationMin: "30", guests: "" }));
+  const [form, setForm] = useState(blank);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }));
     setErrors(({ [k]: _gone, form: _f, ...rest }) => rest);
   };
+
+  // edit: load the current details each time the dialog opens
+  useEffect(() => {
+    if (!open || !editRoomCode) return;
+    let alive = true;
+    setLoading(true);
+    setErrors({});
+    meetingsApi
+      .getSchedule(editRoomCode, getHostKey(editRoomCode))
+      .then((s) => {
+        if (!alive) return;
+        const at = s.scheduledFor ? new Date(s.scheduledFor) : null;
+        setForm({
+          title: s.title,
+          ...(at ? { date: localDate(at), time: localTime(at) } : nextSlot()),
+          durationMin: String(s.durationMin ?? 30),
+          guests: s.invitees.join(", "),
+        });
+        if (!s.editable) setErrors({ form: "This meeting has already started or was cancelled, so it can't be changed." });
+      })
+      .catch((err) => alive && setErrors({ form: errorMessage(err) }))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [open, editRoomCode]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -35,14 +85,25 @@ export function ScheduleDialog({ trigger, onScheduled }: { trigger: ReactNode; o
     if (result.errors) return setErrors(result.errors);
     setBusy(true);
     try {
-      const m = await meetingsApi.create({ ...result.data, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-      saveHostKey(m.roomCode, m.hostKey);
-      const link = `${location.origin}/m/${m.roomCode}`;
-      toast.success(m.invited ? `Scheduled. Invites are on their way to ${m.invited} ${m.invited === 1 ? "person" : "people"}.` : "Scheduled.", {
-        action: { label: "Copy link", onClick: () => void navigator.clipboard?.writeText(link) },
-      });
+      if (editRoomCode) {
+        const r = await meetingsApi.updateSchedule(editRoomCode, { ...result.data, timeZone: timeZone() }, getHostKey(editRoomCode));
+        const parts = [
+          r.updated && `updates sent to ${people(r.updated)}`,
+          r.invited && `invites sent to ${people(r.invited)}`,
+          r.removed && `${people(r.removed)} told they're no longer invited`,
+        ].filter(Boolean);
+        const text = parts.join(", ");
+        toast.success(text ? `Saved. ${text[0]!.toUpperCase()}${text.slice(1)}.` : "Saved.");
+      } else {
+        const m = await meetingsApi.create({ ...result.data, timeZone: timeZone() });
+        saveHostKey(m.roomCode, m.hostKey);
+        const link = `${location.origin}/m/${m.roomCode}`;
+        toast.success(m.invited ? `Scheduled. Invites are on their way to ${people(m.invited)}.` : "Scheduled.", {
+          action: { label: "Copy link", onClick: () => void navigator.clipboard?.writeText(link) },
+        });
+        setForm(blank());
+      }
       setOpen(false);
-      setForm({ title: "", ...nextSlot(), durationMin: "30", guests: "" });
       onScheduled?.();
     } catch (err) {
       const f = fieldErrors(err);
@@ -59,54 +120,85 @@ export function ScheduleDialog({ trigger, onScheduled }: { trigger: ReactNode; o
       </p>
     );
   const invalid = (k: string) => ({ "aria-invalid": !!errors[k], "aria-describedby": errors[k] ? `s-${k}-err` : undefined });
+  const lengths = DURATIONS.includes(Number(form.durationMin)) ? DURATIONS : [...DURATIONS, Number(form.durationMin)].sort((a, b) => a - b);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent>
-        <DialogTitle>Schedule a meeting</DialogTitle>
-        <DialogDescription>Guests get an email with a calendar invite and the link. No account needed to join.</DialogDescription>
-        <form onSubmit={submit} noValidate className="space-y-3">
-          <div className="space-y-1.5">
-            <label htmlFor="s-title" className="text-sm font-medium">Title</label>
-            <input id="s-title" className={field} placeholder="Weekly sync" maxLength={100} value={form.title} onChange={set("title")} {...invalid("title")} />
-            {err("title")}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <label htmlFor="s-date" className="text-sm font-medium">Date</label>
-              <input id="s-date" type="date" className={field} value={form.date} onChange={set("date")} {...invalid("date")} />
+        <DialogTitle>{editing ? "Edit meeting" : "Schedule a meeting"}</DialogTitle>
+        <DialogDescription>
+          {editing
+            ? "Guests get an updated invite and their calendar moves the meeting. People you remove get a cancellation."
+            : "Guests get an email with a calendar invite and the link. No account needed to join."}
+        </DialogDescription>
+        {loading ? (
+          <div role="status" aria-label="Loading meeting" className="space-y-3">
+            <Skeleton className="h-11 rounded-2xl" />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Skeleton className="h-11 rounded-2xl" />
+              <Skeleton className="h-11 rounded-2xl" />
+              <Skeleton className="h-11 rounded-2xl" />
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="s-time" className="text-sm font-medium">Time</label>
-              <input id="s-time" type="time" className={field} value={form.time} onChange={set("time")} {...invalid("time")} />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="s-len" className="text-sm font-medium">Length</label>
-              <select id="s-len" className={field} value={form.durationMin} onChange={set("durationMin")}>
-                {DURATIONS.map((d) => (
-                  <option key={d} value={d}>{d < 60 ? `${d} min` : `${d / 60} h${d % 60 ? " 30 min" : ""}`}</option>
-                ))}
-              </select>
-            </div>
+            <Skeleton className="h-24 rounded-2xl" />
+            <Skeleton className="h-11 rounded-2xl" />
           </div>
-          {err("date") ?? err("time")}
-          <div className="space-y-1.5">
-            <label htmlFor="s-guests" className="text-sm font-medium">Guests <span className="font-normal text-muted-foreground">(optional)</span></label>
-            <textarea id="s-guests" rows={3} className={`${field} h-auto py-2.5`} placeholder="asha@example.com, ravi@example.com"
-              value={form.guests} onChange={set("guests")} {...invalid("guests")} />
-            {err("guests") ?? <p className="text-xs text-muted-foreground">Up to 20 emails, separated by commas or new lines.</p>}
-          </div>
-          {err("form")}
-          <button
-            type="submit"
-            disabled={busy}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-semibold text-ink-950 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-popover focus-visible:outline-none disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <CalendarPlus className="size-4" />}
-            {form.guests.trim() ? "Schedule and send invites" : "Schedule"}
-          </button>
-        </form>
+        ) : (
+          <form onSubmit={submit} noValidate className="space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="s-title" className="text-sm font-medium">
+                Title <span className="text-destructive" aria-hidden>*</span>
+              </label>
+              <input id="s-title" required aria-required className={field} placeholder="Weekly sync" maxLength={100} value={form.title} onChange={set("title")} {...invalid("title")} />
+              {err("title")}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <label htmlFor="s-date" className="text-sm font-medium">Date</label>
+                <input id="s-date" type="date" className={field} value={form.date} onChange={set("date")} {...invalid("date")} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="s-time" className="text-sm font-medium">Time</label>
+                <input id="s-time" type="time" className={field} value={form.time} onChange={set("time")} {...invalid("time")} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="s-len" className="text-sm font-medium">Length</label>
+                <select id="s-len" className={field} value={form.durationMin} onChange={set("durationMin")}>
+                  {lengths.map((d) => (
+                    <option key={d} value={d}>
+                      {lengthLabel(d)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {err("date") ?? err("time")}
+            <div className="space-y-1.5">
+              <label htmlFor="s-guests" className="text-sm font-medium">
+                Guests <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <textarea
+                id="s-guests"
+                rows={3}
+                className={`${field} h-auto py-2.5`}
+                placeholder="asha@example.com, ravi@example.com"
+                value={form.guests}
+                onChange={set("guests")}
+                {...invalid("guests")}
+              />
+              {err("guests") ?? <p className="text-xs text-muted-foreground">Up to 20 emails, separated by commas or new lines.</p>}
+            </div>
+            {err("form")}
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-semibold text-ink-950 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-popover focus-visible:outline-none disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : editing ? <CalendarCheck className="size-4" /> : <CalendarPlus className="size-4" />}
+              {editing ? (form.guests.trim() ? "Save and update guests" : "Save changes") : form.guests.trim() ? "Schedule and send invites" : "Schedule"}
+            </button>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

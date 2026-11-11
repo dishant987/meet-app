@@ -33,6 +33,10 @@ model Meeting {
   scheduledFor DateTime?
   durationMin  Int?
   invites      Invite[]
+  // Host cancelled it before it started (guests got a cancellation); hidden from lists, link says so
+  cancelledAt  DateTime?
+  // Calendar invite version: bumped on every change so calendars update the same event instead of adding one
+  inviteSequence Int     @default(0)
   participants Participant[]
   transcript   Transcript[]
   notes        Notes?

@@ -149,6 +149,24 @@ export const meetingsApi = {
   mine: (query: Partial<MeetingsQuery> = {}, signal?: AbortSignal) =>
     api.get<{ data: MeetingsPage }>("/meetings/mine", { params: query, signal }).then((r) => r.data.data),
   stats: () => api.get<{ data: MyStats }>("/meetings/stats").then((r) => r.data.data),
+  /** Edit form data (host only). */
+  getSchedule: (roomCode: string, hostKey?: string) =>
+    api
+      .get<{ data: { title: string; scheduledFor: string | null; durationMin: number | null; invitees: string[]; editable: boolean } }>(
+        `/meetings/${roomCode}/schedule`,
+        { headers: hostHeaders(hostKey) },
+      )
+      .then((r) => r.data.data),
+  /** Host changes a meeting that hasn't started; `invitees` is the whole new guest list. */
+  updateSchedule: (roomCode: string, change: Omit<NewMeeting, "title"> & { title?: string }, hostKey?: string) =>
+    api
+      .patch<{ data: Meeting & { invited: number; updated: number; removed: number } }>(`/meetings/${roomCode}/schedule`, { ...change, hostKey })
+      .then((r) => r.data.data),
+  /** Host cancels a meeting that hasn't started; guests get a cancellation. */
+  cancelMeeting: (roomCode: string, hostKey?: string) =>
+    api
+      .post<{ data: { cancelled: true; notified: number } }>(`/meetings/${roomCode}/cancel`, { hostKey, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+      .then((r) => r.data.data),
   recordings: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: RecordingInfo[] }>(`/meetings/${roomCode}/recordings`, { headers }).then((r) => r.data.data),
   startRecording: (roomCode: string, hostKey: string | undefined, mimeType: string, durationSec: number) =>

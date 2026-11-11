@@ -70,7 +70,8 @@ test("schedule form: future local time, guest emails split and de-duplicated", a
   assert.deepEqual(ok.data?.invitees, ["a@x.co", "b@x.co"]);
   assert.equal(ok.data?.durationMin, 45);
   assert.equal(new Date(ok.data!.scheduledFor).getHours(), 10); // stays the local time picked
-  assert.equal(check(scheduleForm, { title: "", date: "2020-01-01", time: "10:00", durationMin: "30", guests: "" }).errors?.time, "Pick a time in the future");
-  assert.equal(check(scheduleForm, { title: "", date, time: "10:00", durationMin: "30", guests: "a@x.co nope" }).errors?.guests, "One of the guest emails isn't valid");
+  assert.equal(check(scheduleForm, { title: "Sync", date: "2020-01-01", time: "10:00", durationMin: "30", guests: "" }).errors?.time, "Pick a time in the future");
+  assert.equal(check(scheduleForm, { title: "Sync", date, time: "10:00", durationMin: "30", guests: "a@x.co nope" }).errors?.guests, "One of the guest emails isn't valid");
   assert.equal(check(scheduleForm, { title: "", date: "", time: "10:00", durationMin: "30", guests: "" }).errors?.date, "Pick a date");
+  assert.equal(check(scheduleForm, { title: "  ", date, time: "10:00", durationMin: "30", guests: "" }).errors?.title, "Give the meeting a title");
 });

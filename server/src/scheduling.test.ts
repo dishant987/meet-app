@@ -96,12 +96,13 @@ test("schedule a meeting: each guest gets an email with a calendar invite", asyn
 });
 
 test("scheduling rules: account needed, future time, valid emails, time needed for invites", async () => {
-  assert.equal((await browser()("POST", "/meetings", { scheduledFor: inHours(2) })).body.error.code, "SIGN_IN_TO_SCHEDULE");
+  assert.equal((await browser()("POST", "/meetings", { title: "T", scheduledFor: inHours(2) })).body.error.code, "SIGN_IN_TO_SCHEDULE");
   const host = await signedIn();
-  assert.equal((await host("POST", "/meetings", { scheduledFor: inHours(-2) })).status, 400);
-  assert.equal((await host("POST", "/meetings", { scheduledFor: inHours(2), invitees: ["nope"] })).status, 400);
+  assert.equal((await host("POST", "/meetings", { scheduledFor: inHours(2) })).body.error.details.title[0], "Give the meeting a title");
+  assert.equal((await host("POST", "/meetings", { title: "T", scheduledFor: inHours(-2) })).status, 400);
+  assert.equal((await host("POST", "/meetings", { title: "T", scheduledFor: inHours(2), invitees: ["nope"] })).status, 400);
   assert.equal((await host("POST", "/meetings", { invitees: ["a@example.com"] })).status, 400);
-  assert.equal((await host("POST", "/meetings", { scheduledFor: inHours(2), invitees: Array(21).fill(0).map((_, i) => `p${i}@example.com`) })).status, 400);
+  assert.equal((await host("POST", "/meetings", { title: "T", scheduledFor: inHours(2), invitees: Array(21).fill(0).map((_, i) => `p${i}@example.com`) })).status, 400);
   assert.equal((await browser()("POST", "/meetings", {})).status, 201); // quick meetings still need no account
 });
 
@@ -157,4 +158,55 @@ test("meetings everyone left are closed when the list loads (rooms checked with 
   const closed = await prisma.meeting.findUniqueOrThrow({ where: { roomCode }, include: { notes: true } });
   assert.equal(closed.status, "ENDED");
   assert.ok(closed.notes); // notes started like a normal end
+});
+
+test("edit a scheduled meeting: kept guests get an update, new ones an invite, removed ones a cancellation", async () => {
+  const host = await signedIn("Editor");
+  const a = `a${unique()}@example.com`, b = `b${unique()}@example.com`, c = `c${unique()}@example.com`;
+  const { roomCode } = (await host("POST", "/meetings", { title: "Plan", scheduledFor: inHours(24), invitees: [a, b] })).body.data;
+  await waitFor(() => devOutbox.filter((e) => e.to === a || e.to === b).length >= 2);
+  const before = devOutbox.length;
+
+  assert.equal((await browser()("PATCH", `/meetings/${roomCode}/schedule`, { title: "Hack" })).status, 403); // not the host
+  assert.deepEqual((await host("GET", `/meetings/${roomCode}/schedule`)).body.data.invitees.sort(), [a, b].sort());
+
+  const res = await host("PATCH", `/meetings/${roomCode}/schedule`, { title: "Plan v2", scheduledFor: inHours(48), durationMin: 60, invitees: [b, c] });
+  assert.equal(res.status, 200);
+  assert.deepEqual([res.body.data.invited, res.body.data.updated, res.body.data.removed], [1, 1, 1]);
+  assert.equal(res.body.data.title, "Plan v2");
+  await waitFor(() => devOutbox.length >= before + 3);
+  const sent = devOutbox.slice(before);
+  const to = (email: string) => sent.find((e) => e.to === email)!;
+  assert.match(to(a).subject, /^Removed: Plan/);
+  assert.match(to(a).icalEvent!.content, /METHOD:CANCEL/);
+  assert.match(to(b).subject, /^Updated invitation: Plan v2/);
+  assert.match(to(b).icalEvent!.content, /SEQUENCE:[1-9]/); // same event, newer version
+  assert.match(to(c).subject, /^Invitation: Plan v2/);
+  assert.equal(to(b).icalEvent!.content.match(/UID:(.*)/)![1], to(c).icalEvent!.content.match(/UID:(.*)/)![1]); // one calendar event
+});
+
+test("cancel a scheduled meeting: guests get a cancellation, the link stops working, it leaves the lists", async () => {
+  const host = await signedIn("Canceller");
+  const g = `g${unique()}@example.com`;
+  const { roomCode } = (await host("POST", "/meetings", { title: "Offsite", scheduledFor: inHours(5), invitees: [g] })).body.data;
+  await waitFor(() => devOutbox.some((e) => e.to === g));
+  const before = devOutbox.length;
+  assert.equal((await host("POST", `/meetings/${roomCode}/cancel`, {})).body.data.notified, 1);
+  await waitFor(() => devOutbox.length > before);
+  const mail = devOutbox.slice(before).find((e) => e.to === g)!;
+  assert.match(mail.subject, /^Cancelled: Offsite/);
+  assert.match(mail.icalEvent!.content, /STATUS:CANCELLED/);
+  assert.equal((await browser()("GET", `/meetings/${roomCode}`)).body.error.code, "MEETING_CANCELLED");
+  assert.equal((await browser()("POST", `/meetings/${roomCode}/token`, { name: "Late" })).body.error.code, "MEETING_CANCELLED");
+  assert.equal((await host("GET", "/meetings/mine")).body.data.items.some((m: any) => m.roomCode === roomCode), false);
+  assert.equal((await host("POST", `/meetings/${roomCode}/cancel`, {})).status, 410);
+  assert.equal((await host("PATCH", `/meetings/${roomCode}/schedule`, { title: "Back on" })).status, 410);
+});
+
+test("a meeting that already started can't be edited or cancelled", async () => {
+  const host = await signedIn("Starter");
+  const { roomCode } = (await host("POST", "/meetings", { title: "Now", scheduledFor: inHours(1) })).body.data;
+  await host("POST", `/meetings/${roomCode}/token`, { name: "Starter" }); // -> LIVE
+  assert.equal((await host("PATCH", `/meetings/${roomCode}/schedule`, { title: "Later" })).body.error.code, "MEETING_STARTED");
+  assert.equal((await host("POST", `/meetings/${roomCode}/cancel`, {})).body.error.code, "MEETING_STARTED");
 });

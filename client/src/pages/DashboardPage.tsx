@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { MeetingActions, canManage } from "@/components/MeetingActions";
 import { Link, useNavigate } from "react-router";
 import { AlertTriangle, ArrowRight, CalendarClock, CalendarPlus, Loader2 } from "lucide-react";
 import { VideoIcon, type VideoIconHandle } from "@animateicons/react/lucide/video-icon";
@@ -61,18 +62,21 @@ function ArrowLink({ to, className, children }: { to: string; className: string;
   );
 }
 
-function RecentRow({ m }: { m: MyMeeting }) {
+function RecentRow({ m, onChanged }: { m: MyMeeting; onChanged: () => void }) {
   const video = useIconHover<VideoIconHandle>();
   const notes = useIconHover<NotebookPenIconHandle>();
   const chip = statusChip(m);
   const isLive = m.status !== "ENDED";
   const hover = isLive ? video.hover : notes.hover;
   return (
-    <li>
+    <li className="relative">
       <Link
         to={openLink(m).to}
         {...hover}
-        className="group flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/60 focus-visible:bg-muted focus-visible:outline-none sm:px-5"
+        className={cn(
+          "group flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/60 focus-visible:bg-muted focus-visible:outline-none sm:px-5",
+          canManage(m) && "pr-14 sm:pr-16",
+        )}
       >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted">
           {isLive ? <VideoIcon ref={video.ref} size={16} className="flex" /> : <NotebookPenIcon ref={notes.ref} size={16} className="flex" />}
@@ -86,6 +90,7 @@ function RecentRow({ m }: { m: MyMeeting }) {
         <span className={cn("hidden shrink-0 rounded-lg px-2 py-1 text-xs font-semibold sm:inline", chip.cls)}>{chip.text}</span>
         <ArrowRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" aria-hidden />
       </Link>
+      {canManage(m) && <MeetingActions m={m} onChanged={onChanged} className="absolute top-1/2 right-3 -translate-y-1/2 sm:right-4" />}
     </li>
   );
 }
@@ -281,7 +286,7 @@ export function DashboardPage() {
           </div>
           <ul className={cn(card, "divide-y divide-border overflow-hidden")}>
             {stats.upcoming.map((m) => (
-              <RecentRow key={m.id} m={m} />
+              <RecentRow key={m.id} m={m} onChanged={load} />
             ))}
           </ul>
         </section>
@@ -322,7 +327,7 @@ export function DashboardPage() {
         ) : (
           <ul className={cn(card, "divide-y divide-border overflow-hidden")}>
             {meetings.map((m) => (
-              <RecentRow key={m.id} m={m} />
+              <RecentRow key={m.id} m={m} onChanged={load} />
             ))}
           </ul>
         )}

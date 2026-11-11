@@ -49,6 +49,7 @@
 }
 
 :root {
+    --brand-ink: oklch(0.5 0.14 132); /* lime accent that stays readable on white */
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -84,6 +85,7 @@
 }
 
 .dark {
+    --brand-ink: oklch(0.9 0.19 125);
     color-scheme: dark;
     --background: oklch(0.14 0.008 275);
     --foreground: oklch(0.985 0 0);
@@ -134,6 +136,9 @@
   html {
     @apply font-sans;
     }
+}
+@theme inline {
+  --color-brand-ink: var(--brand-ink);
 }
 /* ---- Brand: "studio" dark surfaces + lime "live signal" accent ---- */
 @theme {
@@ -201,3 +206,31 @@ input:-webkit-autofill:focus {
   box-shadow: 0 0 0 1000px var(--card) inset;
   transition: background-color 9999s ease-out 0s;
 }
+
+/* ---------- landing page motion (all of it stops for "reduce motion") ---------- */
+/* sections fade up as they scroll into view (.reveal gets data-shown from useReveal) */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1); transition-delay: var(--reveal-delay, 0ms); }
+.reveal[data-shown] { opacity: 1; transform: none; }
+/* highlighter stroke draws itself under the headline */
+@keyframes marker-draw { from { transform: scaleX(0) rotate(-1deg); } to { transform: scaleX(1) rotate(-1deg); } }
+.marker-draw { transform-origin: left center; animation: marker-draw 0.9s 0.35s cubic-bezier(0.6, 0, 0.2, 1) both; }
+/* slow floating glow behind the hero */
+@keyframes drift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(4%, -6%) scale(1.08); } }
+.drift { animation: drift 14s ease-in-out infinite; }
+/* typing caret in the live caption */
+@keyframes caret { 50% { opacity: 0; } }
+.caret::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -0.15em; background: currentColor; animation: caret 1s steps(1) infinite; }
+/* notes lines tick in one after another */
+@keyframes tick-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.tick-in { animation: tick-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--tick-delay, 0ms); }
+/* gentle bob for the floating preview cards */
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.bob { animation: bob 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .marker-draw, .drift, .tick-in, .bob { animation: none; }
+  .caret::after { animation: none; }
+}
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

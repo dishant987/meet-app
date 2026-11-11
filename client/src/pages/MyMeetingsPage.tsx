@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MeetingActions, canManage } from "@/components/MeetingActions";
 import { Link, useSearchParams } from "react-router";
 import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Search, SearchX, Video, X } from "lucide-react";
 import { PlusIcon, type PlusIconHandle } from "@animateicons/react/lucide/plus-icon";
@@ -67,11 +68,11 @@ function pageList(current: number, count: number): (number | "…")[] {
   return sorted.flatMap((p, i) => (i > 0 && p - sorted[i - 1]! > 1 ? ["…" as const, p] : [p]));
 }
 
-function MeetingCard({ m }: { m: MyMeeting }) {
+function MeetingCard({ m, onChanged }: { m: MyMeeting; onChanged: () => void }) {
   const chip = statusChip(m);
   const link = openLink(m);
   return (
-    <li>
+    <li className="relative">
       <Link
         to={link.to}
         className="group flex h-full flex-col rounded-3xl border border-border bg-card p-5 transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
@@ -84,7 +85,7 @@ function MeetingCard({ m }: { m: MyMeeting }) {
               {m.invitedCount > 0 && ` · ${m.invitedCount} invited`}
             </p>
           </div>
-          <span className={cn("shrink-0 rounded-lg px-2 py-1 text-xs font-semibold", chip.cls)}>{chip.text}</span>
+          <span className={cn("shrink-0 rounded-lg px-2 py-1 text-xs font-semibold", chip.cls, canManage(m) && "mr-10")}>{chip.text}</span>
         </div>
         {m.notes?.summary && <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{m.notes.summary}</p>}
         <div className="mt-auto flex items-center justify-between gap-2 pt-3">
@@ -100,6 +101,8 @@ function MeetingCard({ m }: { m: MyMeeting }) {
           </span>
         </div>
       </Link>
+      {/* next to the card, not inside its link, so opening the menu never opens the meeting */}
+      {canManage(m) && <MeetingActions m={m} onChanged={onChanged} className="absolute top-4 right-4" />}
     </li>
   );
 }
@@ -279,7 +282,7 @@ export function MyMeetingsPage() {
       ) : (
         <ul className={cn("grid gap-3 transition-opacity xl:grid-cols-2", loading && "opacity-60")}>
           {data.items.map((m) => (
-            <MeetingCard key={m.id} m={m} />
+            <MeetingCard key={m.id} m={m} onChanged={() => setReload((n) => n + 1)} />
           ))}
         </ul>
       )}

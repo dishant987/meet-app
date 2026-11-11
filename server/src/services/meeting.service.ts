@@ -6,7 +6,7 @@ import { env } from "../config/env.js";
 import { closeRoom, createJoinToken, isRoomEmpty, muteMicrophone, removeFromRoom } from "./livekit.service.js";
 import { emailNotes, startNotes, type NotesContent } from "./notes.service.js";
 import { downloadUrl, storedSize, uploadUrl } from "./storage.service.js";
-import { inviteEmail, sendEmails } from "./email.service.js";
+import { cancelEmail, inviteEmail, sendEmails } from "./email.service.js";
 import { formatWhen, inviteIcs } from "./calendar.service.js";
 import { logger } from "../utils/logger.js";
 import { waitUntil } from "@vercel/functions";
@@ -37,8 +37,7 @@ export async function createMeeting(input: NewMeeting, hostId?: string) {
         },
         select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true, scheduledFor: true, durationMin: true },
       });
-      // emails go out after we answer (Vercel keeps the function alive for waitUntil)
-      if (invitees.length) waitUntil(sendInvites(meeting.id, input.timeZone).catch((err) => logger.error({ err }, "Invites failed")));
+      if (invitees.length) sendLater(sendInvites(meeting.id, input.timeZone));
       return { ...meeting, invited: invitees.length };
     } catch (err) {
       if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
@@ -47,27 +46,44 @@ export async function createMeeting(input: NewMeeting, hostId?: string) {
   throw new AppError(500, "ROOM_CODE_FAILED", "Could not create a meeting code, try again");
 }
 
-/** One email with a calendar invite per guest (nobody sees the other guests' addresses). */
-export async function sendInvites(meetingId: string, timeZone?: string) {
+type InviteKind = "new" | "updated" | "cancelled" | "removed";
+
+/**
+ * Calendar emails to guests: a new invite, an update (same calendar event, higher version), or a cancellation.
+ * `to` limits who gets it (default: everyone invited). One email per guest, so nobody sees the others.
+ */
+export async function sendInvites(meetingId: string, timeZone?: string, opts: { kind?: InviteKind; to?: string[] } = {}) {
+  const kind = opts.kind ?? "new";
   const m = await prisma.meeting.findUniqueOrThrow({
     where: { id: meetingId },
-    select: { id: true, title: true, roomCode: true, scheduledFor: true, durationMin: true, host: { select: { name: true, email: true } }, invites: { select: { email: true } } },
+    select: {
+      id: true,
+      title: true,
+      roomCode: true,
+      scheduledFor: true,
+      durationMin: true,
+      inviteSequence: true,
+      host: { select: { name: true, email: true } },
+      invites: { select: { email: true } },
+    },
   });
-  if (!m.scheduledFor || !m.invites.length) return { sent: 0 };
+  const to = opts.to ?? m.invites.map((i) => i.email);
+  if (!m.scheduledFor || !to.length) return { sent: 0 };
   const link = `${env.CLIENT_URL}/m/${m.roomCode}`;
   const hostName = m.host?.name ?? "Someone";
   const minutes = m.durationMin ?? 30;
   const when = formatWhen(m.scheduledFor, timeZone);
-  const base = inviteEmail(hostName, m.title, when, minutes, link);
+  const cancelling = kind === "cancelled" || kind === "removed";
+  const base = cancelling ? cancelEmail(hostName, m.title, when, kind === "removed") : inviteEmail(hostName, m.title, when, minutes, link, kind === "updated");
   await sendEmails(
-    m.invites.map(({ email }) => ({
+    to.map((email) => ({
       ...base,
       to: email,
       replyTo: m.host?.email,
       icalEvent: {
-        method: "REQUEST" as const,
+        method: cancelling ? ("CANCEL" as const) : ("REQUEST" as const),
         content: inviteIcs({
-          uid: `${m.id}@meetapp`,
+          uid: `${m.id}@meetapp`, // same event every time: calendars update or remove it
           start: m.scheduledFor!,
           minutes,
           title: m.title,
@@ -75,26 +91,108 @@ export async function sendInvites(meetingId: string, timeZone?: string) {
           url: link,
           organizer: { name: `${hostName} (MeetApp)`, email: env.SMTP_USER || "noreply@meetapp.invalid" },
           attendee: email,
+          sequence: m.inviteSequence,
+          method: cancelling ? "CANCEL" : "REQUEST",
         }),
       },
     })),
   );
-  return { sent: m.invites.length };
+  return { sent: to.length };
+}
+
+/** Emails go out after we answer (Vercel keeps the function alive for waitUntil); failures are logged. */
+const sendLater = (job: Promise<unknown>) => waitUntil(job.catch((err) => logger.error({ err }, "Calendar emails failed")));
+
+/** Changes are only allowed before anyone joined, like a calendar invite. */
+function assertEditable(m: { status: string; cancelledAt: Date | null }) {
+  if (m.cancelledAt) throw new AppError(410, "MEETING_CANCELLED", "This meeting was cancelled.");
+  if (m.status !== "SCHEDULED") throw new AppError(409, "MEETING_STARTED", "This meeting has already started, so it can't be changed.");
+}
+
+/** What the edit form needs (host only). */
+export async function getSchedule(roomCode: string, access: Access) {
+  const { meeting } = await authorize(roomCode, access, "host");
+  const invites = await prisma.invite.findMany({ where: { meetingId: meeting.id }, orderBy: { createdAt: "asc" }, select: { email: true } });
+  return {
+    title: meeting.title,
+    scheduledFor: meeting.scheduledFor,
+    durationMin: meeting.durationMin,
+    invitees: invites.map((i) => i.email),
+    editable: !meeting.cancelledAt && meeting.status === "SCHEDULED",
+  };
+}
+
+export type ScheduleChange = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
+
+/** Host edits a meeting that hasn't started; guests get updated invites, removed guests a cancellation. */
+export async function updateSchedule(roomCode: string, access: Access, change: ScheduleChange) {
+  const { meeting } = await authorize(roomCode, access, "host");
+  assertEditable(meeting);
+  const before = await prisma.invite.findMany({ where: { meetingId: meeting.id }, select: { email: true } });
+  const old = new Set(before.map((i) => i.email));
+  const wanted = change.invitees ? [...new Set(change.invitees)] : [...old];
+  const added = wanted.filter((e) => !old.has(e));
+  const removed = [...old].filter((e) => !wanted.includes(e));
+  const scheduledFor = change.scheduledFor ? new Date(change.scheduledFor) : meeting.scheduledFor;
+  if (!scheduledFor && wanted.length) throw new AppError(400, "TIME_NEEDED", "Pick a date and time to send invites");
+  const detailsChanged =
+    (change.title !== undefined && change.title !== meeting.title) ||
+    (change.scheduledFor !== undefined && +new Date(change.scheduledFor) !== +(meeting.scheduledFor ?? 0)) ||
+    (change.durationMin !== undefined && change.durationMin !== meeting.durationMin);
+
+  // the removed guests' cancellation must use the old details, so send those first
+  if (removed.length && meeting.scheduledFor) {
+    await prisma.meeting.update({ where: { id: meeting.id }, data: { inviteSequence: { increment: 1 } } });
+    await sendInvites(meeting.id, change.timeZone, { kind: "removed", to: removed }).catch((err) => logger.error({ err }, "Removal emails failed"));
+  }
+
+  const updated = await prisma.meeting.update({
+    where: { id: meeting.id },
+    data: {
+      title: change.title ?? undefined,
+      scheduledFor,
+      durationMin: change.durationMin ?? meeting.durationMin ?? (scheduledFor ? 30 : null),
+      inviteSequence: detailsChanged ? { increment: 1 } : undefined,
+      invites: {
+        deleteMany: removed.length ? { email: { in: removed } } : undefined,
+        create: added.map((email) => ({ email })),
+      },
+    },
+    select: { id: true, title: true, roomCode: true, status: true, scheduledFor: true, durationMin: true },
+  });
+
+  const kept = wanted.filter((e) => old.has(e));
+  if (detailsChanged && kept.length) sendLater(sendInvites(meeting.id, change.timeZone, { kind: "updated", to: kept }));
+  if (added.length) sendLater(sendInvites(meeting.id, change.timeZone, { kind: "new", to: added }));
+  return { ...updated, invited: added.length, updated: detailsChanged ? kept.length : 0, removed: removed.length };
+}
+
+/** Host cancels a meeting that hasn't started: every guest gets a cancellation; the link stops working. */
+export async function cancelMeeting(roomCode: string, access: Access, timeZone?: string) {
+  const { meeting } = await authorize(roomCode, access, "host");
+  assertEditable(meeting);
+  await prisma.meeting.update({ where: { id: meeting.id }, data: { cancelledAt: new Date(), inviteSequence: { increment: 1 } } });
+  const guests = await prisma.invite.count({ where: { meetingId: meeting.id } });
+  if (guests && meeting.scheduledFor) sendLater(sendInvites(meeting.id, timeZone, { kind: "cancelled" }));
+  return { cancelled: true, notified: meeting.scheduledFor ? guests : 0 };
 }
 
 export async function getMeeting(roomCode: string) {
   const meeting = await prisma.meeting.findUnique({
     where: { roomCode },
-    select: { id: true, title: true, roomCode: true, status: true, createdAt: true },
+    select: { id: true, title: true, roomCode: true, status: true, createdAt: true, scheduledFor: true, cancelledAt: true },
   });
   if (!meeting) throw new AppError(404, "MEETING_NOT_FOUND", "This meeting does not exist. Check the link.");
-  return meeting;
+  if (meeting.cancelledAt) throw new AppError(410, "MEETING_CANCELLED", "The host cancelled this meeting.");
+  const { cancelledAt: _c, ...rest } = meeting;
+  return rest;
 }
 
 /** Join a meeting. With "Ask to join" on, non-hosts get a waiting ticket instead of a token. */
 export async function joinMeeting(roomCode: string, name: string, userId?: string, hostKey?: string) {
   const m = await prisma.meeting.findUnique({ where: { roomCode } });
   if (!m) throw new AppError(404, "MEETING_NOT_FOUND", "This meeting does not exist. Check the link.");
+  if (m.cancelledAt) throw new AppError(410, "MEETING_CANCELLED", "The host cancelled this meeting.");
   if (m.status === "ENDED") throw new AppError(410, "MEETING_ENDED", "This meeting has ended.");
   const isHost = (!!hostKey && sameSecret(hostKey, m.hostKey)) || (!!userId && userId === m.hostId);
 
@@ -297,7 +395,8 @@ async function whereMine(userId: string, role: MyMeetingsQuery["role"] = "all"):
   const hosted = { hostId: userId };
   const joined = { participants: { some: { userId, status: ATTENDED } } };
   const invited = { invites: { some: { email: me.email } }, NOT: { hostId: userId } };
-  return role === "hosted" ? hosted : role === "joined" ? joined : role === "invited" ? invited : { OR: [hosted, joined, invited] };
+  const who = role === "hosted" ? hosted : role === "joined" ? joined : role === "invited" ? invited : { OR: [hosted, joined, invited] };
+  return { AND: [who, { cancelledAt: null }] }; // cancelled meetings leave every list
 }
 
 // "upcoming" = has a planned time; a quick meeting nobody opened yet only shows under "all"
