@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { waitUntil } from "@vercel/functions";
 import * as auth from "../services/auth.service.js";
 import { SESSION_COOKIE, sessionCookie } from "../middlewares/auth.js";
 
@@ -9,7 +10,10 @@ async function signIn(res: Response, user: auth.PublicUser, status = 200) {
 
 export async function register(req: Request, res: Response) {
   const { name, email, password } = req.body;
-  await signIn(res, await auth.register(name, email, password), 201);
+  const user = await auth.register(name, email, password);
+  await signIn(res, user, 201);
+  // the confirmation email goes out after we answer (sign-up stays fast); a failure is logged, the banner can resend
+  waitUntil(auth.sendVerificationEmail(user).catch((err) => req.log.error({ err }, "Confirmation email failed")));
 }
 
 export async function login(req: Request, res: Response) {
@@ -40,4 +44,12 @@ export async function forgotPassword(req: Request, res: Response) {
 
 export async function resetPassword(req: Request, res: Response) {
   await signIn(res, await auth.resetPassword(req.body.token, req.body.password));
+}
+
+export async function verifyEmail(req: Request, res: Response) {
+  res.json({ success: true, data: await auth.verifyEmail(req.body.token) });
+}
+
+export async function resendVerification(req: Request, res: Response) {
+  res.json({ success: true, data: await auth.resendVerification(req.user!.id) });
 }

@@ -95,23 +95,29 @@ test("changing password keeps this device signed in and signs out the others", a
   assert.equal((await there("GET", "/auth/me")).body.data, null);
 });
 
-test("notes are emailed once, one email per signed-in attendee (not guests); host can resend, others can't", async () => {
+test("notes are emailed once, one email per confirmed attendee (not guests, not unconfirmed); host can resend, others can't", async () => {
   const host = browser();
   const hostEmail = `host${unique()}@example.com`;
   await host("POST", "/auth/register", { name: "Host", email: hostEmail, password: "password-1" });
   const member = browser();
   const memberEmail = `mem${unique()}@example.com`;
   await member("POST", "/auth/register", { name: "Member", email: memberEmail, password: "password-1" });
+  await prisma.user.updateMany({ where: { email: { in: [hostEmail, memberEmail] } }, data: { emailVerifiedAt: new Date() } });
+  const unconfirmed = browser(); // signed up but never clicked the link: gets no notes email
+  await unconfirmed("POST", "/auth/register", { name: "Una", email: `una${unique()}@example.com`, password: "password-1" });
 
   const { roomCode } = (await host("POST", "/meetings", { title: "Sprint" })).body.data;
   const h = (await host("POST", `/meetings/${roomCode}/token`, { name: "Host" })).body.data;
   await member("POST", `/meetings/${roomCode}/token`, { name: "Member" });
+  await unconfirmed("POST", `/meetings/${roomCode}/token`, { name: "Una" });
   await browser()("POST", `/meetings/${roomCode}/token`, { name: "Guest" });
   await host("POST", `/meetings/${roomCode}/transcript`, { participantId: h.participantId, lines: [{ text: "We ship Friday", spokenAt: new Date().toISOString() }] });
 
+  await new Promise((r) => setTimeout(r, 300)); // let the sign-up confirmation emails go out first
   const before = devOutbox.length;
   await host("POST", `/meetings/${roomCode}/end`, {});
   for (let i = 0; i < 50 && devOutbox.length < before + 2; i++) await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 200)); // a third (wrong) email would show up here
   const sent = devOutbox.slice(before);
   assert.deepEqual(sent.map((e) => e.to).sort(), [hostEmail, memberEmail].sort()); // individually, no guest
   assert.match(sent[0]!.subject, /^Notes: Sprint review/);

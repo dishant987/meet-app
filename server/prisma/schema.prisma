@@ -118,6 +118,8 @@ model User {
   pictureUrl    String?
   // Bumped on password change/reset: sessions carry this number, so older sessions on other devices stop working.
   sessionVersion Int         @default(0)
+  // Set once the person clicks the link in the confirmation email (or signs in with Google, or resets the password).
+  emailVerifiedAt DateTime?
   createdAt    DateTime      @default(now())
   hosted       Meeting[]     @relation("HostedMeetings")
   joined       Participant[]

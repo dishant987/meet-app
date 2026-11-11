@@ -1,8 +1,9 @@
 import { Router } from "express";
 import * as auth from "../controllers/auth.controller.js";
 import { validate } from "../middlewares/validate.js";
+import { requireUser } from "../middlewares/auth.js";
 import { forgotLimiters, limit, loginLimiters, registerLimiter } from "../middlewares/rateLimit.js";
-import { forgotBody, googleBody, loginBody, registerBody, resetBody } from "../validators/auth.validator.js";
+import { forgotBody, googleBody, loginBody, registerBody, resetBody, verifyEmailBody } from "../validators/auth.validator.js";
 
 export const authRoutes = Router();
 
@@ -13,3 +14,5 @@ authRoutes.get("/me", auth.me);
 authRoutes.post("/google", limit(20, 15 * 60_000), validate({ body: googleBody }), auth.google);
 authRoutes.post("/forgot-password", ...forgotLimiters, validate({ body: forgotBody }), auth.forgotPassword);
 authRoutes.post("/reset-password", limit(10, 15 * 60_000), validate({ body: resetBody }), auth.resetPassword);
+authRoutes.post("/verify-email", limit(20, 15 * 60_000), validate({ body: verifyEmailBody }), auth.verifyEmail);
+authRoutes.post("/resend-verification", requireUser, limit(3, 15 * 60_000), auth.resendVerification);

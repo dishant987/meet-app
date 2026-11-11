@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth";
 import { useStartMeeting } from "@/lib/useStartMeeting";
 import { useIconHover } from "@/lib/useIconHover";
 import { installApp, useCanInstall } from "@/lib/install";
+import { ConfirmEmailBanner } from "@/components/ConfirmEmailBanner";
 
 const NAV = [
   { to: "/dashboard", label: "Home", Icon: HouseIcon },
@@ -244,6 +245,7 @@ export function AppShell() {
           <AccountMenu />
         </header>
         <main className="flex-1">
+          <ConfirmEmailBanner />
           {/* the page area loads on its own, so the sidebar stays put while switching pages */}
           {user ? (
             <Suspense fallback={<PageSkeleton />}>

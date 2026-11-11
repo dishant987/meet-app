@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 
-export type User = { id: string; name: string; email: string; avatarUrl: string | null; hasPassword: boolean; google: boolean };
+export type User = { id: string; name: string; email: string; avatarUrl: string | null; hasPassword: boolean; google: boolean; emailVerified: boolean };
 
 type AuthState = {
   user: User | null;

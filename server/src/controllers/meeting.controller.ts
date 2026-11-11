@@ -4,11 +4,19 @@ import { AppError } from "../utils/AppError.js";
 import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 
 // Express 5 forwards rejected promises to errorHandler, so no try/catch here.
+
+/** Invites are emails sent in your name: only from a confirmed account. */
+function assertCanInvite(req: Request, invitees?: string[]) {
+  if (invitees?.length && !req.user?.emailVerified)
+    throw new AppError(403, "EMAIL_NOT_VERIFIED", "Confirm your email first to send invites. Check your inbox for our link.");
+}
+
 export async function create(req: Request, res: Response) {
   const { title, scheduledFor, durationMin, invitees, timeZone } = req.body;
   // scheduling and invites need an account (so emails can't be sent anonymously)
   if ((scheduledFor || invitees?.length) && !req.user)
     throw new AppError(401, "SIGN_IN_TO_SCHEDULE", "Sign in to schedule meetings and send invites");
+  assertCanInvite(req, invitees);
   const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone }, req.user?.id);
   res.status(201).json({ success: true, data: meeting });
 }
@@ -119,6 +127,7 @@ export async function getSchedule(req: Request<{ roomCode: string }>, res: Respo
 
 export async function updateSchedule(req: Request<{ roomCode: string }>, res: Response) {
   const { title, scheduledFor, durationMin, invitees, timeZone } = req.body;
+  assertCanInvite(req, invitees);
   res.json({ success: true, data: await meetingService.updateSchedule(req.params.roomCode, access(req), { title, scheduledFor, durationMin, invitees, timeZone }) });
 }
 

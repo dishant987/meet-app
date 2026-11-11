@@ -39,15 +39,21 @@ function browser() {
 }
 const unique = () => `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
-async function signedIn(name = "Host") {
-  const b = browser();
-  const email = `${name.toLowerCase()}${unique()}@example.com`;
-  await b("POST", "/auth/register", { name, email, password: "password-1" });
-  return Object.assign(b, { email });
-}
 const waitFor = async (cond: () => boolean) => {
   for (let i = 0; i < 50 && !cond(); i++) await new Promise((r) => setTimeout(r, 100));
 };
+const confirmLink = async (email: string) => {
+  await waitFor(() => devOutbox.some((m) => m.to === email && m.subject.startsWith("Confirm")));
+  return devOutbox.findLast((m) => m.to === email && m.subject.startsWith("Confirm"))!.text.match(/verify-email\?token=([\w.-]+)/)![1]!;
+};
+/** A signed-in account that has confirmed its email (invites need that). */
+async function signedIn(name = "Host", { confirm = true } = {}) {
+  const b = browser();
+  const email = `${name.toLowerCase()}${unique()}@example.com`;
+  await b("POST", "/auth/register", { name, email, password: "password-1" });
+  if (confirm) await b("POST", "/auth/verify-email", { token: await confirmLink(email) });
+  return Object.assign(b, { email });
+}
 
 test("calendar invite file: UTC times, escaped text, folded long lines", () => {
   const ics = inviteIcs(
@@ -209,4 +215,40 @@ test("a meeting that already started can't be edited or cancelled", async () => 
   await host("POST", `/meetings/${roomCode}/token`, { name: "Starter" }); // -> LIVE
   assert.equal((await host("PATCH", `/meetings/${roomCode}/schedule`, { title: "Later" })).body.error.code, "MEETING_STARTED");
   assert.equal((await host("POST", `/meetings/${roomCode}/cancel`, {})).body.error.code, "MEETING_STARTED");
+});
+
+test("email confirmation: link sent on sign-up; no invites until confirmed; link checks the address", async () => {
+  const host = await signedIn("Una", { confirm: false });
+  const me = await host("GET", "/auth/me");
+  assert.equal(me.body.data.emailVerified, false);
+  const token = await confirmLink(host.email);
+
+  // unconfirmed: can schedule, but not send invites
+  const blocked = await host("POST", "/meetings", { title: "Sync", scheduledFor: inHours(5), invitees: ["x@example.com"] });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.error.code, "EMAIL_NOT_VERIFIED");
+  assert.equal((await host("POST", "/meetings", { title: "Solo", scheduledFor: inHours(5) })).status, 201);
+
+  // resend: needs sign-in; sends a new link
+  assert.equal((await browser()("POST", "/auth/resend-verification")).status, 401);
+  const before = devOutbox.filter((m) => m.to === host.email).length;
+  assert.equal((await host("POST", "/auth/resend-verification")).body.data.alreadyVerified, false);
+  assert.equal(devOutbox.filter((m) => m.to === host.email).length, before + 1);
+
+  // bad links
+  assert.equal((await browser()("POST", "/auth/verify-email", { token: "x".repeat(40) })).body.error.code, "VERIFY_LINK_INVALID");
+
+  // the link works from any device, twice is fine
+  const other = browser();
+  assert.equal((await other("POST", "/auth/verify-email", { token })).status, 200);
+  assert.equal((await other("POST", "/auth/verify-email", { token })).status, 200);
+  assert.equal((await host("GET", "/auth/me")).body.data.emailVerified, true);
+  assert.equal((await host("POST", "/meetings", { title: "Sync", scheduledFor: inHours(5), invitees: ["x@example.com"] })).status, 201);
+  assert.equal((await host("POST", "/auth/resend-verification")).body.data.alreadyVerified, true);
+
+  // a link stops working if the account's email changed since it was sent
+  const changer = await signedIn("Cho", { confirm: false });
+  const oldLink = await confirmLink(changer.email);
+  await prisma.user.update({ where: { email: changer.email }, data: { email: `new${unique()}@example.com` } });
+  assert.equal((await browser()("POST", "/auth/verify-email", { token: oldLink })).status, 400);
 });

@@ -95,6 +95,22 @@ export function resetPasswordEmail(name: string, link: string, minutes: number):
   };
 }
 
+export function verifyEmailEmail(name: string, link: string, hours: number): Omit<Email, "to"> {
+  return {
+    subject: "Confirm your email for MeetApp",
+    html: layout(
+      "Confirm your email",
+      `<p>Hi ${esc(name)},</p><p>Welcome to MeetApp! Please confirm this is your email so we can send you meeting notes and invites. The link works for ${hours} hours.</p>${button(link, "Confirm my email")}<p style="color:#5b5d68;font-size:14px">If you didn't create a MeetApp account, ignore this email.</p>`,
+    ),
+    text: `Hi ${name},
+
+Confirm your email for MeetApp (link works for ${hours} hours):
+${link}
+
+If you didn't create a MeetApp account, ignore this email.`,
+  };
+}
+
 type NotesForEmail = {
   title: string;
   summary: string;

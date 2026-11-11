@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { Loader2, MailCheck } from "lucide-react";
+import { CircleCheck, Loader2, MailCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api, errorMessage, fieldErrors } from "@/lib/api";
@@ -165,6 +165,61 @@ export function ResetPasswordPage() {
           {busy && <Loader2 className="size-4 animate-spin" />} Save new password
         </button>
       </form>
+    </Shell>
+  );
+}
+
+/** Opened from the "Confirm your email" link. Works signed in or not, on any device. */
+export function VerifyEmailPage() {
+  const [params] = useSearchParams();
+  const token = params.get("token") ?? "";
+  const { user, loading, setUser } = useAuth();
+  const [state, setState] = useState<{ status: "checking" | "done" | "failed"; message?: string }>({ status: token ? "checking" : "failed" });
+  const sent = useRef(false);
+
+  useEffect(() => {
+    if (!token || sent.current) return;
+    sent.current = true; // once (dev StrictMode runs effects twice)
+    api
+      .post<{ data: { email: string } }>("/auth/verify-email", { token })
+      .then(() => setState({ status: "done" }))
+      .catch((err) => setState({ status: "failed", message: errorMessage(err) }));
+  }, [token]);
+
+  // signed in here as that account: update the banner straight away
+  useEffect(() => {
+    if (state.status === "done" && user && !user.emailVerified) setUser({ ...user, emailVerified: true });
+  }, [state.status, user, setUser]);
+
+  if (state.status === "checking")
+    return (
+      <Shell title="Confirming your email" subtitle="One moment...">
+        <div role="status" className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Checking your link
+        </div>
+      </Shell>
+    );
+  if (state.status === "done")
+    return (
+      <Shell title="Email confirmed" subtitle="Thanks! You can now send invites, and meeting notes will reach your inbox.">
+        <div className="flex items-center gap-2 rounded-2xl bg-brand/15 px-4 py-3 text-sm font-medium">
+          <CircleCheck className="size-5 text-brand-ink" aria-hidden /> Your email is confirmed
+        </div>
+        {loading ? null : (
+          <Link to={user ? "/dashboard" : "/signin"} className={primary}>
+            {user ? "Go to dashboard" : "Sign in"}
+          </Link>
+        )}
+      </Shell>
+    );
+  return (
+    <Shell
+      title="Link not valid"
+      subtitle={state.message ?? "This confirmation link is missing its code. Open the link from your email again."}
+    >
+      <Link to={user ? "/dashboard" : "/signin"} className={primary}>
+        {user ? "Back to dashboard (resend from there)" : "Sign in to get a new link"}
+      </Link>
     </Shell>
   );
 }

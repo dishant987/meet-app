@@ -86,6 +86,10 @@ const ResetPasswordPage = page(
   () => import("@/pages/PasswordPages"),
   (m) => m.ResetPasswordPage,
 );
+const VerifyEmailPage = page(
+  () => import("@/pages/PasswordPages"),
+  (m) => m.VerifyEmailPage,
+);
 const NotFoundPage = page(
   () => import("@/pages/NotFoundPage"),
   (m) => m.NotFoundPage,
@@ -145,6 +149,7 @@ const router = createBrowserRouter([
       },
       { path: "/forgot-password", element: load(<ForgotPasswordPage />) },
       { path: "/reset-password", element: load(<ResetPasswordPage />) },
+      { path: "/verify-email", element: load(<VerifyEmailPage />) },
       { path: "*", element: load(<NotFoundPage />) },
     ],
   },

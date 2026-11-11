@@ -127,14 +127,19 @@ export async function emailNotes(meetingId: string, opts: { force?: boolean } = 
       startedAt: true,
       createdAt: true,
       notes: true,
-      host: { select: { email: true } },
-      participants: { where: { status: { in: ["ADMITTED", "REMOVED"] } }, select: { user: { select: { email: true } } } },
+      host: { select: { email: true, emailVerifiedAt: true } },
+      participants: {
+        where: { status: { in: ["ADMITTED", "REMOVED"] } },
+        select: { user: { select: { email: true, emailVerifiedAt: true } } },
+      },
     },
   });
   if (!m.notes || m.notes.status !== "READY") throw new AppError(409, "NOTES_NOT_READY", "Notes aren't ready yet");
   if (m.notes.emailedAt && !opts.force) return { sent: 0 };
 
-  const to = [...new Set([m.host?.email, ...m.participants.map((p) => p.user?.email)].filter((e): e is string => !!e))];
+  // only confirmed addresses: someone could sign up with an email that isn't theirs
+  const people = [m.host, ...m.participants.map((p) => p.user)];
+  const to = [...new Set(people.filter((u) => u?.emailVerifiedAt).map((u) => u!.email))];
   const date = (m.startedAt ?? m.createdAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
   const content = notesContent.parse(m.notes);
   const email = notesEmail(m.title, date, content, `${env.CLIENT_URL}/m/${m.roomCode}/notes`);

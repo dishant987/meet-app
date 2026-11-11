@@ -38,8 +38,8 @@ async function upsertUser(email: string, name: string, password?: string) {
   const passwordHash = password ? await hashPassword(password) : null;
   return prisma.user.upsert({
     where: { email },
-    update: { name, ...(passwordHash && { passwordHash, sessionVersion: { increment: 1 } }) },
-    create: { email, name, passwordHash },
+    update: { name, emailVerifiedAt: new Date(), ...(passwordHash && { passwordHash, sessionVersion: { increment: 1 } }) },
+    create: { email, name, passwordHash, emailVerifiedAt: new Date() },
   });
 }
 

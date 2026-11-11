@@ -4,13 +4,21 @@ import { SignJWT, createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jo
 import { prisma } from "../config/db.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
-import { resetPasswordEmail, sendEmail } from "./email.service.js";
+import { resetPasswordEmail, sendEmail, verifyEmailEmail } from "./email.service.js";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 const secret = new TextEncoder().encode(env.JWT_SECRET);
 export const SESSION_DAYS = 30;
 
-export type PublicUser = { id: string; name: string; email: string; avatarUrl: string | null; hasPassword: boolean; google: boolean };
+export type PublicUser = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  hasPassword: boolean;
+  google: boolean;
+  emailVerified: boolean;
+};
 
 // Fields needed to build a PublicUser (never the password hash or the photo bytes).
 export const USER_FIELDS = {
@@ -22,6 +30,7 @@ export const USER_FIELDS = {
   avatarType: true,
   avatarVersion: true,
   pictureUrl: true,
+  emailVerifiedAt: true,
 } as const;
 type UserRow = {
   id: string;
@@ -32,6 +41,7 @@ type UserRow = {
   avatarType: string | null;
   avatarVersion: number;
   pictureUrl: string | null;
+  emailVerifiedAt: Date | null;
 };
 /** Uploaded photo (served by our API, versioned so browsers can cache it forever), else Google's, else none. */
 export const avatarUrl = (u: Pick<UserRow, "id" | "avatarType" | "avatarVersion" | "pictureUrl">) =>
@@ -43,6 +53,7 @@ export const publicUser = (u: UserRow): PublicUser => ({
   avatarUrl: avatarUrl(u),
   hasPassword: !!u.passwordHash,
   google: !!u.googleId,
+  emailVerified: !!u.emailVerifiedAt,
 });
 
 // Stored as "scrypt$<salt>$<hash>" (base64url).
@@ -132,12 +143,18 @@ export async function loginWithGoogle(credential: string, keys: JWTVerifyGetKey 
   if (byGoogle)
     return publicUser(await prisma.user.update({ where: { id: byGoogle.id }, data: { pictureUrl }, select: USER_FIELDS }));
   // Same verified email as an existing password account → link them (Google proved they own the email).
-  const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true, emailVerifiedAt: true } });
   if (byEmail)
     return publicUser(
-      await prisma.user.update({ where: { id: byEmail.id }, data: { googleId: claims.sub, pictureUrl }, select: USER_FIELDS }),
+      await prisma.user.update({
+        where: { id: byEmail.id },
+        data: { googleId: claims.sub, pictureUrl, emailVerifiedAt: byEmail.emailVerifiedAt ?? new Date() },
+        select: USER_FIELDS,
+      }),
     );
-  return publicUser(await prisma.user.create({ data: { name, email, googleId: claims.sub, pictureUrl }, select: USER_FIELDS }));
+  return publicUser(
+    await prisma.user.create({ data: { name, email, googleId: claims.sub, pictureUrl, emailVerifiedAt: new Date() }, select: USER_FIELDS }),
+  );
 }
 
 // ---------- forgot password ----------
@@ -169,8 +186,10 @@ export async function resetPassword(token: string, password: string) {
   const reset = await prisma.passwordReset.findUnique({ where: { tokenHash: sha256(token) } });
   if (!reset || reset.usedAt || reset.expiresAt < new Date())
     throw new AppError(400, "RESET_LINK_INVALID", "This reset link is invalid or has expired. Ask for a new one.");
-  const [, user] = await prisma.$transaction([
+  const [, , user] = await prisma.$transaction([
     prisma.passwordReset.update({ where: { id: reset.id }, data: { usedAt: new Date() } }),
+    // the link came to their inbox, so this also confirms the email
+    prisma.user.updateMany({ where: { id: reset.userId, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } }),
     prisma.user.update({
       where: { id: reset.userId },
       data: { passwordHash: await hashPassword(password), sessionVersion: { increment: 1 } },
@@ -178,4 +197,44 @@ export async function resetPassword(token: string, password: string) {
     }),
   ]);
   return publicUser(user);
+}
+
+// ---------- confirm email ----------
+
+const VERIFY_HOURS = 24;
+
+/** Emails a "Confirm your email" link (a signed token for this account + this exact address, valid 24 hours). */
+export async function sendVerificationEmail(user: { id: string; name: string; email: string }) {
+  const token = await new SignJWT({ purpose: "verify-email", email: user.email })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(user.id)
+    .setIssuedAt()
+    .setExpirationTime(`${VERIFY_HOURS}h`)
+    .sign(secret);
+  await sendEmail({ to: user.email, ...verifyEmailEmail(user.name, `${env.CLIENT_URL}/verify-email?token=${token}`, VERIFY_HOURS) });
+}
+
+/** Resend from the signed-in banner. Nothing to do if already confirmed. */
+export async function resendVerification(userId: string) {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true, name: true, email: true, emailVerifiedAt: true } });
+  if (user.emailVerifiedAt) return { alreadyVerified: true };
+  await sendVerificationEmail(user);
+  return { alreadyVerified: false };
+}
+
+/** Confirms the email from the link. Works on any device (no sign-in needed); using it twice is fine. */
+export async function verifyEmail(token: string) {
+  const bad = new AppError(400, "VERIFY_LINK_INVALID", "This confirmation link is invalid or has expired. Sign in and send a new one.");
+  let payload: { sub?: string; purpose?: unknown; email?: unknown };
+  try {
+    ({ payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] }));
+  } catch {
+    throw bad;
+  }
+  if (payload.purpose !== "verify-email" || !payload.sub) throw bad;
+  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { email: true, emailVerifiedAt: true } });
+  // the address must still be the one the link was sent to
+  if (!user || user.email !== payload.email) throw bad;
+  if (!user.emailVerifiedAt) await prisma.user.update({ where: { id: payload.sub }, data: { emailVerifiedAt: new Date() } });
+  return { email: user.email };
 }
