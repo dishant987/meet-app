@@ -7,6 +7,7 @@ import { HouseIcon, type HouseIconHandle } from "@animateicons/react/lucide/hous
 import { CalendarClockIcon } from "@animateicons/react/lucide/calendar-clock-icon";
 import { UserRoundIcon } from "@animateicons/react/lucide/user-round-icon";
 import { SearchIcon } from "@animateicons/react/lucide/search-icon";
+import { CalendarDaysIcon } from "@animateicons/react/lucide/calendar-days-icon";
 import { UsersIcon } from "@animateicons/react/lucide/users-icon";
 import { CreditCardIcon } from "@animateicons/react/lucide/credit-card-icon";
 import { PlusIcon, type PlusIconHandle } from "@animateicons/react/lucide/plus-icon";
@@ -22,6 +23,7 @@ import { installApp, useCanInstall } from "@/lib/install";
 const NAV = [
   { to: "/dashboard", label: "Home", Icon: HouseIcon },
   { to: "/meetings", label: "Meetings", Icon: CalendarClockIcon },
+  { to: "/calendar", label: "Calendar", Icon: CalendarDaysIcon },
   { to: "/search", label: "Search", Icon: SearchIcon },
   { to: "/teams", label: "Teams", Icon: UsersIcon },
   { to: "/billing", label: "Billing", Icon: CreditCardIcon },

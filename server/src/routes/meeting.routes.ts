@@ -21,6 +21,7 @@ import {
   chatBody,
   rsvpBody,
   askBody,
+  calendarQuery,
   searchQuery,
   seriesParams,
 } from "../validators/meeting.validator.js";
@@ -32,6 +33,7 @@ meetingRoutes.post("/", limit(20), validate({ body: createMeetingBody }), invite
 // before "/:roomCode" so "mine" / "stats" aren't read as codes
 meetingRoutes.get("/mine", requireConfirmed, limit(120), validate({ query: myMeetingsQuery }), meeting.mine);
 meetingRoutes.get("/stats", requireConfirmed, limit(60), meeting.stats);
+meetingRoutes.get("/calendar", requireConfirmed, limit(120), validate({ query: calendarQuery }), meeting.calendar);
 meetingRoutes.get("/search", requireConfirmed, limit(60), validate({ query: searchQuery }), meeting.search);
 meetingRoutes.post("/rsvp", limit(30), validate({ body: rsvpBody }), meeting.rsvp);
 meetingRoutes.get("/series/:seriesId/current", limit(60), validate({ params: seriesParams }), meeting.seriesCurrent);

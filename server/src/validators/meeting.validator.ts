@@ -108,4 +108,10 @@ export const askBody = z.object({
 });
 export const searchQuery = z.object({ q: z.string().trim().min(2, "Type at least 2 letters").max(100) });
 
+/** Calendar range (what the month or week view shows), at most about two months at once. */
+export const calendarQuery = z
+  .object({ from: z.iso.datetime({ offset: true }), to: z.iso.datetime({ offset: true }) })
+  .refine((q) => new Date(q.to) > new Date(q.from), { path: ["to"], message: "The end must be after the start" })
+  .refine((q) => new Date(q.to).getTime() - new Date(q.from).getTime() <= 62 * 86_400_000, { path: ["to"], message: "Ask for at most 62 days" });
+
 export const seriesParams = z.object({ seriesId: z.string().regex(/^[\w-]{8,40}$/) });

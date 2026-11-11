@@ -212,3 +212,21 @@ test("plans: people per call and recordings per month follow the host's plan", a
   assert.equal(b.used.recordingsThisMonth, 6); // 5 + the one Pro just allowed
   assert.equal((await host("POST", "/billing/checkout", { interval: "month" })).body.error.code, "BILLING_NOT_CONFIGURED");
 });
+
+test("calendar: my meetings in a date range, nobody else's, range checked", async () => {
+  const me = await person("Kai");
+  const base = Date.now() + 200 * 86_400_000; // ~7 months ahead: nothing else in the tests lands there
+  const day = (d: number, h = 10) => new Date(base + (d - 1) * 86_400_000 + h * 3_600_000).toISOString();
+  await me("POST", "/meetings", { title: "In range", scheduledFor: day(10), durationMin: 45 });
+  await me("POST", "/meetings", { title: "Out of range", scheduledFor: day(25) });
+  const other = await person("Lou");
+  await other("POST", "/meetings", { title: "Not mine", scheduledFor: day(11) });
+
+  const r = await me("GET", `/meetings/calendar?from=${encodeURIComponent(day(1, 0))}&to=${encodeURIComponent(day(20, 0))}`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.data.map((m: any) => [m.title, m.durationMin, m.isHost]), [["In range", 45, true]]);
+
+  assert.equal((await me("GET", `/meetings/calendar?from=${encodeURIComponent(day(1))}&to=${encodeURIComponent(day(70))}`)).status, 400); // > 62 days
+  assert.equal((await me("GET", `/meetings/calendar?from=${encodeURIComponent(day(5))}&to=${encodeURIComponent(day(1))}`)).status, 400);
+  assert.equal((await browser()("GET", `/meetings/calendar?from=${encodeURIComponent(day(1))}&to=${encodeURIComponent(day(5))}`)).status, 401);
+});

@@ -102,6 +102,10 @@ const ReplyPage = page(
   () => import("@/pages/InvitePages"),
   (m) => m.ReplyPage,
 );
+const CalendarPage = page(
+  () => import("@/pages/CalendarPage"),
+  (m) => m.CalendarPage,
+);
 const SearchPage = page(
   () => import("@/pages/SearchPage"),
   (m) => m.SearchPage,
@@ -173,6 +177,7 @@ const router = createBrowserRouter([
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/meetings", element: <MyMeetingsPage /> },
           { path: "/profile", element: <ProfilePage /> },
+          { path: "/calendar", element: <CalendarPage /> },
           { path: "/search", element: <SearchPage /> },
           { path: "/teams", element: <TeamsPage /> },
           { path: "/teams/:teamId", element: <TeamPage /> },

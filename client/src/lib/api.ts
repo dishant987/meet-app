@@ -166,6 +166,11 @@ export const meetingsApi = {
     api.patch<{ data: Notes }>(`/meetings/${roomCode}/notes`, { hostKey, notes }).then((r) => r.data.data),
   mine: (query: Partial<MeetingsQuery> = {}, signal?: AbortSignal) =>
     api.get<{ data: MeetingsPage }>("/meetings/mine", { params: query, signal }).then((r) => r.data.data),
+  /** Calendar page: my meetings between two moments (at most ~2 months). */
+  calendar: (from: Date, to: Date, signal?: AbortSignal) =>
+    api
+      .get<{ data: MyMeeting[] }>("/meetings/calendar", { params: { from: from.toISOString(), to: to.toISOString() }, signal })
+      .then((r) => r.data.data),
   stats: () => api.get<{ data: MyStats }>("/meetings/stats").then((r) => r.data.data),
   /** Edit form data (host only). */
   getSchedule: (roomCode: string, hostKey?: string) =>

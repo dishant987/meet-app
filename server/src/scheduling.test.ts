@@ -294,16 +294,17 @@ test("reminders: once per meeting, 10-15 min before, to host + guests who didn't
   const run = await sendDueReminders();
   assert.ok(run.emails >= 2);
   const reminders = devOutbox.slice(before).filter((m) => m.subject.startsWith("Starting"));
-  const to = reminders.filter((m) => m.subject.includes("Standup")).map((m) => m.to).sort();
+  const to = reminders.filter((m) => m.text.includes(`/m/${made.body.data.roomCode}`)).map((m) => m.to).sort();
   assert.deepEqual(to, [host.email, yes].sort()); // not to the one who said no
-  const standup = reminders.find((m) => m.subject.includes("Standup"))!;
+  const standup = reminders.find((m) => m.text.includes(`/m/${made.body.data.roomCode}`))!;
   assert.match(standup.subject, /in (9|10) minutes/);
   assert.match(standup.text, new RegExp(`/m/${made.body.data.roomCode}`));
   assert.equal(reminders.filter((m) => m.subject.includes("Later")).length, 0); // too far away
 
   const again = devOutbox.length;
   await sendDueReminders();
-  assert.equal(devOutbox.slice(again).filter((m) => m.subject.includes("Standup")).length, 0); // only once
+  const mine = (m: { text: string }) => m.text.includes(`/m/${made.body.data.roomCode}`); // this meeting only (older runs leave other "Standup"s)
+  assert.equal(devOutbox.slice(again).filter(mine).length, 0); // only once
   assert.ok(far.body.data.roomCode);
 });
 

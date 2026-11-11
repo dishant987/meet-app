@@ -81,6 +81,12 @@ export async function mine(req: Request, res: Response) {
   res.json({ success: true, data: await meetingService.listMyMeetings(req.user!.id, req.query as unknown as MyMeetingsQuery) });
 }
 
+export async function calendar(req: Request, res: Response) {
+  res.set("cache-control", "no-store");
+  const { from, to } = req.query as { from: string; to: string };
+  res.json({ success: true, data: await meetingService.calendarMeetings(req.user!.id, new Date(from), new Date(to)) });
+}
+
 export async function stats(req: Request, res: Response) {
   res.set("cache-control", "no-store");
   res.json({ success: true, data: await meetingService.myStats(req.user!.id) });

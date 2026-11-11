@@ -704,6 +704,22 @@ async function closeAbandoned(mine: Prisma.MeetingWhereInput) {
   await Promise.all(live.map(async (m) => (await isRoomEmpty(m.roomCode)) && endAndStartNotes(m).catch(() => {})));
 }
 
+/** Calendar page: my meetings in a date range (planned time; meetings without one by when they started). */
+export async function calendarMeetings(userId: string, from: Date, to: Date) {
+  const rows = await prisma.meeting.findMany({
+    where: {
+      AND: [
+        await whereMine(userId),
+        { OR: [{ scheduledFor: { gte: from, lt: to } }, { scheduledFor: null, startedAt: { gte: from, lt: to } }] },
+      ],
+    },
+    orderBy: [{ scheduledFor: "asc" }, { startedAt: "asc" }],
+    take: 500,
+    select: listSelect,
+  });
+  return rows.map(toItem(userId));
+}
+
 export async function listMyMeetings(userId: string, query: MyMeetingsQuery) {
   const mine = await whereMine(userId, query.role);
   await closeAbandoned(await whereMine(userId));

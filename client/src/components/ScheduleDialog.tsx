@@ -38,13 +38,15 @@ type Props = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onScheduled?: () => void;
+  /** Schedule mode: start the form at this date and time (e.g. a slot clicked in the calendar). */
+  initialAt?: Date | null;
 };
 
 /**
  * Schedule a meeting (guests get a calendar invite) or edit one that hasn't started
  * (guests get an update to the same calendar event; removed guests get a cancellation).
  */
-export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenChange, onScheduled }: Props) {
+export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenChange, onScheduled, initialAt }: Props) {
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
   const setOpen = (o: boolean) => (onOpenChange ? onOpenChange(o) : setOpenState(o));
@@ -56,6 +58,11 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
   const [series, setSeries] = useState<{ recurrence: string; left: number } | null>(null);
   const [replies, setReplies] = useState<{ email: string; response: Answer | null }[]>([]);
   const [teams, setTeams] = useState<TeamSummary[]>([]);
+
+  // schedule: start at the slot the person picked
+  useEffect(() => {
+    if (open && !editRoomCode && initialAt) setForm({ ...blank(), date: localDate(initialAt), time: localTime(initialAt) });
+  }, [open, editRoomCode, initialAt]);
 
   // schedule: my teams, for "Who's it for"
   useEffect(() => {
