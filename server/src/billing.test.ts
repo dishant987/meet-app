@@ -75,3 +75,71 @@ test("stripe webhook: bad signature refused; subscription events set the plan", 
   await send(subscription(user.stripeCustomerId!, "canceled"));
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).plan, "FREE");
 });
+
+test("billing emails: receipt (welcome first), cancel, failed and ended each go out once", async () => {
+  const { devOutbox } = await import("./services/email.service.js");
+  const email = `mail${Date.now()}@example.com`;
+  const customer = `cus_test_mail_${Date.now()}`;
+  await prisma.user.create({ data: { name: "Mia", email, stripeCustomerId: customer, plan: "PRO", subscriptionStatus: "active" } });
+  const mine = () => devOutbox.filter((m) => m.to === email);
+  const settle = () => new Promise((r) => setTimeout(r, 150)); // emails go out after the response
+
+  const invoice = (id: string, reason: string) => ({
+    id: `evt_${id}`,
+    object: "event",
+    type: "invoice.paid",
+    data: {
+      object: {
+        id,
+        object: "invoice",
+        customer,
+        status: "paid",
+        amount_paid: 49900,
+        amount_due: 49900,
+        currency: "inr",
+        number: "MA-0001",
+        created: 1_800_000_000,
+        billing_reason: reason,
+        hosted_invoice_url: "https://invoice.stripe.test/i/1",
+        invoice_pdf: "https://invoice.stripe.test/i/1.pdf",
+        status_transitions: { paid_at: 1_800_000_000 },
+        lines: { data: [{ period: { start: 1_800_000_000, end: 1_802_592_000 }, pricing: { price_details: { price: "price_test_month" } } }] },
+      },
+    },
+  });
+  await send(invoice("in_test_1", "subscription_create"));
+  await send(invoice("in_test_1", "subscription_create")); // Stripe retried: no second email
+  await settle();
+  assert.equal(mine().length, 1);
+  assert.match(mine()[0]!.subject, /^Welcome to MeetApp Pro/);
+  assert.match(mine()[0]!.text, /₹499\.00/);
+  assert.match(mine()[0]!.html, /i\/1\.pdf/);
+
+  await send(invoice("in_test_2", "subscription_cycle")); // next month's renewal
+  await settle();
+  assert.equal(mine().length, 2);
+  assert.match(mine()[1]!.subject, /^Your MeetApp receipt MA-0001/);
+
+  // cancelled in the portal (cancel_at): one confirmation, even if the event comes twice
+  const cancelled = subscription(customer, "active", false, "price_test_month");
+  (cancelled.data.object as Record<string, unknown>).cancel_at = 1_805_000_000;
+  await send(cancelled);
+  await send({ ...cancelled, id: "evt_again" });
+  await settle();
+  assert.equal(mine().filter((m) => m.subject.includes("is cancelled")).length, 1);
+
+  // a renewal payment failed
+  const failed = { ...invoice("in_test_3", "subscription_cycle"), type: "invoice.payment_failed" };
+  (failed.data.object as Record<string, unknown>).status = "open";
+  await send(failed);
+  await send(failed);
+  await settle();
+  assert.equal(mine().filter((m) => m.subject.startsWith("Action needed")).length, 1);
+
+  // the subscription ended: back on Free, one email
+  await send(subscription(customer, "canceled"));
+  await send(subscription(customer, "canceled"));
+  await settle();
+  assert.equal(mine().filter((m) => m.subject.includes("has ended")).length, 1);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { email } })).plan, "FREE");
+});

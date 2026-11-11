@@ -144,6 +144,9 @@ model User {
   planInterval       String?   // "month" | "year"
   planRenewsAt       DateTime?
   cancelAtPeriodEnd  Boolean   @default(false)
+  // Billing emails already sent, so each goes out once even when the webhook and a page sync both see it:
+  // { receipt: <last invoice id>, cancel: <end timestamp>, failed: <invoice id>, ended: <subscription id> }
+  billingEmails      Json      @default("{}")
   // Secret for the personal calendar feed (/api/calendar/<token>.ics); new token = old link stops working
   calendarToken String?      @unique
   createdAt    DateTime      @default(now())

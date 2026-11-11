@@ -303,7 +303,8 @@ test("reminders: once per meeting, 10-15 min before, to host + guests who didn't
 
   const again = devOutbox.length;
   await sendDueReminders();
-  const mine = (m: { text: string }) => m.text.includes(`/m/${made.body.data.roomCode}`); // this meeting only (older runs leave other "Standup"s)
+  // this meeting's reminders only (older runs leave other "Standup"s; its invite emails can arrive late)
+  const mine = (m: { subject: string; text: string }) => m.subject.startsWith("Starting") && m.text.includes(`/m/${made.body.data.roomCode}`);
   assert.equal(devOutbox.slice(again).filter(mine).length, 0); // only once
   assert.ok(far.body.data.roomCode);
 });

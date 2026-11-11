@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { ArrowUpRight, CreditCard, Crown, Download, ExternalLink, Loader2, Receipt } from "lucide-react";
+import { ArrowUpRight, CircleSlash, CreditCard, Crown, Download, ExternalLink, Loader2, Receipt, X } from "lucide-react";
 import { cn } from "cn";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PeriodSwitch, PlanCards, money, planButton, yearlySaving, type Period } from "@/components/PlanCards";
 import { billingApi, errorMessage, type BillingOverview, type PaidPlan, type PublicPlan } from "@/lib/api";
+import { CheckoutResult, type CheckoutState } from "@/components/billing/CheckoutResult";
+import { confetti } from "@/lib/confetti";
+import { useAuth } from "@/lib/auth";
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 const STATUS: Record<string, { text: string; cls: string }> = {
@@ -59,22 +62,41 @@ export function BillingPage() {
     }
   }
 
+  const { user } = useAuth();
+  const [result, setResult] = useState<CheckoutState>(null);
+  const [cancelledNote, setCancelledNote] = useState(false);
+
   useEffect(() => {
     const back = params.get("checkout");
     // from the landing page's pricing: /billing?upgrade=PRO&period=year starts that checkout straight away
     const upgrade = params.get("upgrade");
-    billingApi
-      .overview()
-      .then((d) => {
+    if (back === "success") setResult("confirming");
+    if (back === "cancelled") setCancelledNote(true);
+    let tries = 0;
+    let stop = false;
+    // back from a payment: ask until Stripe says the plan is on (a few seconds), then celebrate
+    const load = (): Promise<void> =>
+      billingApi.overview().then((d) => {
+        if (stop) return;
         setData(d);
-        if (back === "success")
-          toast.success(d.plan !== "FREE" ? `You're on ${d.limits.name} now. Thank you!` : "Payment received. Your plan updates in a moment.");
-        if (back === "cancelled") toast("Checkout cancelled. Nothing was charged.");
-        if ((upgrade === "PRO" || upgrade === "BUSINESS") && d.plan === "FREE" && d.billing) void checkout(upgrade, period);
-        if (back || upgrade) setParams({}, { replace: true });
-      })
-      .catch((err) => setError(errorMessage(err)));
+        if (back !== "success") {
+          if ((upgrade === "PRO" || upgrade === "BUSINESS") && d.plan === "FREE" && d.billing) void checkout(upgrade, period);
+          return;
+        }
+        if (d.plan !== "FREE") {
+          setResult("success");
+          confetti();
+          return;
+        }
+        if (++tries >= 8) return setResult("slow");
+        return new Promise<void>((r) => setTimeout(r, 2000)).then(load);
+      });
+    load().catch((err) => setError(errorMessage(err)));
+    if (back || upgrade) setParams({}, { replace: true });
     billingApi.plans().then(setPlans).catch(() => setPlans([]));
+    return () => {
+      stop = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once; the flags are read on arrival
   }, []);
 
@@ -90,6 +112,18 @@ export function BillingPage() {
           <p className="text-muted-foreground">Your plan, what you've used, and your payments.</p>
         </div>
       </div>
+
+      {cancelledNote && (
+        <div role="status" className="flex items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+          <CircleSlash className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <p className="flex-1">
+            <span className="font-medium">Checkout cancelled.</span> <span className="text-muted-foreground">No charge was made. You can upgrade any time.</span>
+          </p>
+          <button type="button" aria-label="Dismiss" onClick={() => setCancelledNote(false)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       {error ? (
         <p role="alert" className="rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>
@@ -243,6 +277,7 @@ export function BillingPage() {
           </section>
         </>
       )}
+      <CheckoutResult state={result} data={data} email={user?.email} onClose={() => setResult(null)} />
     </div>
   );
 }
