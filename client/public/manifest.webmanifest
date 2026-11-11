@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "MeetApp",
+  "short_name": "MeetApp",
+  "description": "Video calls with live captions, AI notes and recordings.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#08090c",
+  "theme_color": "#08090c",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "My meetings", "url": "/meetings", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

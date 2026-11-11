@@ -14,6 +14,7 @@ import { HomePage } from "@/pages/HomePage";
 import { AuthProvider } from "@/lib/auth";
 import { PageLoading } from "@/components/PageLoading";
 import { IdleLogout } from "@/components/IdleLogout";
+import { registerServiceWorker } from "@/lib/install";
 
 const RELOAD_FLAG = "meetapp-reloaded-for-update";
 
@@ -148,6 +149,8 @@ const router = createBrowserRouter([
     ],
   },
 ]);
+
+registerServiceWorker();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

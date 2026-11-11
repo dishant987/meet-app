@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { PageSkeleton } from "@/components/PageLoading";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, Navigate, Outlet, useLocation, useMatch } from "react-router";
-import { Loader2, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Loader2, Menu, MonitorDown, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { HouseIcon, type HouseIconHandle } from "@animateicons/react/lucide/house-icon";
 import { CalendarClockIcon } from "@animateicons/react/lucide/calendar-clock-icon";
 import { UserRoundIcon } from "@animateicons/react/lucide/user-round-icon";
@@ -14,6 +14,7 @@ import { AccountMenu } from "@/components/UserMenu";
 import { useAuth } from "@/lib/auth";
 import { useStartMeeting } from "@/lib/useStartMeeting";
 import { useIconHover } from "@/lib/useIconHover";
+import { installApp, useCanInstall } from "@/lib/install";
 
 const NAV = [
   { to: "/dashboard", label: "Home", Icon: HouseIcon },
@@ -131,6 +132,7 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
         </nav>
 
         <div className={cn("mt-auto border-t border-sidebar-border pt-3", collapsed ? "flex flex-col items-center gap-2" : "space-y-2")}>
+          <InstallButton collapsed={collapsed} />
           <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between px-1")}>
             {!collapsed && <span className="text-xs text-muted-foreground">Theme</span>}
             <Tip label="Theme" show={collapsed}>
@@ -147,6 +149,28 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
         </div>
       </div>
     </TooltipProvider>
+  );
+}
+
+/** "Install app" while the browser says MeetApp can be installed; hidden once it is (or in Safari). */
+function InstallButton({ collapsed }: { collapsed: boolean }) {
+  const canInstall = useCanInstall();
+  if (!canInstall) return null;
+  return (
+    <Tip label="Install app" show={collapsed}>
+      <button
+        type="button"
+        onClick={() => void installApp()}
+        aria-label={collapsed ? "Install app" : undefined}
+        className={cn(
+          "flex items-center rounded-xl text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
+          collapsed ? "size-11 justify-center" : "h-10 w-full gap-3 px-3",
+        )}
+      >
+        <MonitorDown className="size-[18px] shrink-0" aria-hidden />
+        {!collapsed && "Install app"}
+      </button>
+    </Tip>
   );
 }
 
