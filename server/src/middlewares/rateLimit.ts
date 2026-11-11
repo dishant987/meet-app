@@ -48,3 +48,9 @@ export const loginLimiters = [
 
 /** New accounts per IP. */
 export const registerLimiter = base({ limit: 5, windowMs: 60 * 60_000, keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? "unknown")}` });
+
+/** "Forgot password" emails: per IP and per email address, so nobody can flood someone's inbox. */
+export const forgotLimiters = [
+  base({ limit: 5, windowMs: 15 * 60_000, keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? "unknown")}` }),
+  base({ limit: 3, windowMs: 15 * 60_000, keyGenerator: (req) => `email:${String(req.body?.email ?? "").trim().toLowerCase()}` }),
+];

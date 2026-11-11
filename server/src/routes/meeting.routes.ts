@@ -54,3 +54,4 @@ meetingRoutes.post(
   meeting.completeRecording,
 );
 meetingRoutes.get("/:roomCode/recordings", limit(30), validate({ params: roomCodeParams }), meeting.listRecordings);
+meetingRoutes.post("/:roomCode/notes/email", limit(3, 15 * 60_000), validate({ params: roomCodeParams, body: hostBody }), meeting.emailNotes);

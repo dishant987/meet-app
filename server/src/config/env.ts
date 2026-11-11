@@ -13,6 +13,12 @@ const schema = z.object({
   JWT_SECRET: z.string().min(32, "must be at least 32 characters (see .env.example)"),
   // Google sign-in (optional). OAuth client ID from Google Cloud Console; same value as the client's VITE_GOOGLE_CLIENT_ID.
   GOOGLE_CLIENT_ID: z.string().trim().optional(),
+  // Email over SMTP (Nodemailer). Optional locally: without them, emails go to a dev outbox in the server log.
+  SMTP_HOST: z.string().trim().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().trim().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().trim().optional(), // e.g. "MeetApp <you@gmail.com>"; defaults to SMTP_USER
   // Shared rate-limit counts (needed on Vercel, where many copies of the server run). Optional locally.
   UPSTASH_REDIS_REST_URL: z.string().trim().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().trim().optional(),

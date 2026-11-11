@@ -4,7 +4,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
 import { closeRoom, createJoinToken, isRoomEmpty } from "./livekit.service.js";
-import { startNotes, type NotesContent } from "./notes.service.js";
+import { emailNotes, startNotes, type NotesContent } from "./notes.service.js";
 import { downloadUrl, storedSize, uploadUrl } from "./storage.service.js";
 import { avatarUrl } from "./auth.service.js";
 
@@ -243,4 +243,10 @@ export async function listRecordings(roomCode: string, access: Access) {
       downloadUrl: await downloadUrl(storageKey, `${meeting.title} recording ${i + 1}.${storageKey.split(".").pop()}`),
     })),
   );
+}
+
+/** Host sends the notes email again (e.g. after editing them). */
+export async function emailNotesAgain(roomCode: string, access: Access) {
+  const { meeting } = await authorize(roomCode, access, "host");
+  return emailNotes(meeting.id, { force: true });
 }

@@ -7,11 +7,14 @@
     <meta name="theme-color" content="#0a0a0a" />
     <title>MeetApp</title>
     <script>
-      // Follow the system light/dark setting (manual switch comes in Phase 5).
-      const mq = matchMedia('(prefers-color-scheme: dark)');
-      const apply = () => document.documentElement.classList.toggle('dark', mq.matches);
-      apply();
-      mq.addEventListener('change', apply);
+      // Set light/dark before the page paints (no flash). Same rules as src/lib/theme.ts.
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('theme'); } catch (e) {}
+        var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0a0a0a' : '#ffffff');
+      })();
     </script>
   </head>
   <body>

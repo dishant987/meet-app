@@ -84,6 +84,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --background: oklch(0.14 0.008 275);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.18 0.01 275);
@@ -124,6 +125,12 @@
   body {
     @apply bg-background text-foreground;
     }
+  /* Typed text always uses the theme colour (some browsers, e.g. Brave, paint it black in dark mode) */
+  input, textarea, select {
+    color: var(--foreground);
+    -webkit-text-fill-color: var(--foreground);
+  }
+  ::placeholder { -webkit-text-fill-color: currentColor; }
   html {
     @apply font-sans;
     }
@@ -182,4 +189,15 @@
   html, body { background: white !important; color: black !important; }
   [data-sonner-toaster] { display: none !important; }
   .bg-card, .bg-muted { background: transparent !important; }
+}
+
+/* Browser autofill paints inputs light blue/yellow; keep them in the app's colours (light and dark). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+  box-shadow: 0 0 0 1000px var(--card) inset;
+  transition: background-color 9999s ease-out 0s;
 }

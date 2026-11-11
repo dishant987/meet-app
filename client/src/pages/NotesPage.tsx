@@ -16,6 +16,7 @@ import {
   MicOff,
   Pencil,
   Printer,
+  Mail,
   RefreshCw,
   Sparkles,
   Users,
@@ -218,8 +219,22 @@ export function NotesPage() {
     return () => clearInterval(t);
   }, [waiting, error, load]);
 
+  // Host: email the (possibly edited) notes to everyone who joined while signed in.
+  const [emailing, setEmailing] = useState(false);
+  async function emailAttendees() {
+    setEmailing(true);
+    try {
+      const { sent } = await meetingsApi.emailNotes(roomCode, hostKey);
+      toast.success(sent ? `Notes emailed to ${sent} ${sent === 1 ? "person" : "people"}` : "Nobody to email: only people who joined while signed in get notes by email.");
+      await load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setEmailing(false);
+    }
+  }
+
   async function regenerate() {
-    if (!hostKey) return;
     try {
       await meetingsApi.regenerateNotes(roomCode, hostKey);
       await load();
@@ -229,7 +244,6 @@ export function NotesPage() {
   }
 
   async function save(content: NotesContent) {
-    if (!hostKey) return;
     const notes = await meetingsApi.updateNotes(roomCode, hostKey, content); // errors shown by the editor
     setData((d) => (d ? { ...d, notes } : d));
     setEditing(false);
@@ -351,6 +365,16 @@ export function NotesPage() {
                   <div className="flex gap-2">
                     <button type="button" onClick={() => setEditing(true)} className={actionBtn}>
                       <Pencil /> <span className="hidden sm:inline">Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={emailAttendees}
+                      disabled={emailing}
+                      className={actionBtn}
+                      aria-label="Email the notes to attendees"
+                      title={notes?.emailedAt ? `Last emailed ${new Date(notes.emailedAt).toLocaleString()}` : "Not emailed yet"}
+                    >
+                      {emailing ? <Loader2 className="animate-spin" /> : <Mail />} <span className="hidden sm:inline">Email</span>
                     </button>
                     <button
                       type="button"

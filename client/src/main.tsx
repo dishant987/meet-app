@@ -11,16 +11,20 @@ import { NotesPage } from "@/pages/NotesPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { MyMeetingsPage } from "@/pages/MyMeetingsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
+import { ForgotPasswordPage, ResetPasswordPage } from "@/pages/PasswordPages";
 import { AuthProvider } from "@/lib/auth";
 
 const router = createBrowserRouter([
   { path: "/", element: <HomePage /> },
   { path: "/m/:roomCode", element: <RoomPage /> },
   { path: "/m/:roomCode/notes", element: <NotesPage /> },
-  { path: "/signin", element: <AuthPage mode="signin" /> },
-  { path: "/signup", element: <AuthPage mode="signup" /> },
+  // key: Sign in and Sign up are the same component; a different key makes each page start empty
+  { path: "/signin", element: <AuthPage key="signin" mode="signin" /> },
+  { path: "/signup", element: <AuthPage key="signup" mode="signup" /> },
   { path: "/meetings", element: <MyMeetingsPage /> },
   { path: "/profile", element: <ProfilePage /> },
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
   { path: "*", element: <NotFoundPage /> },
 ]);
 

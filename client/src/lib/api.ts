@@ -77,6 +77,7 @@ export type Notes = NotesContent & {
   provider: string | null;
   error: string | null;
   edited: boolean;
+  emailedAt: string | null;
   updatedAt: string;
 };
 export type NotesResponse = { meeting: Meeting; isHost: boolean; attendees: string[]; lineCount: number; notes: Notes | null };
@@ -99,8 +100,10 @@ export const meetingsApi = {
   end: (roomCode: string, hostKey?: string) => api.post(`/meetings/${roomCode}/end`, { hostKey }),
   notes: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: NotesResponse }>(`/meetings/${roomCode}/notes`, { headers }).then((r) => r.data.data),
-  regenerateNotes: (roomCode: string, hostKey: string) => api.post(`/meetings/${roomCode}/notes/regenerate`, { hostKey }),
-  updateNotes: (roomCode: string, hostKey: string, notes: NotesContent) =>
+  emailNotes: (roomCode: string, hostKey?: string) =>
+    api.post<{ data: { sent: number } }>(`/meetings/${roomCode}/notes/email`, { hostKey }).then((r) => r.data.data),
+  regenerateNotes: (roomCode: string, hostKey?: string) => api.post(`/meetings/${roomCode}/notes/regenerate`, { hostKey }),
+  updateNotes: (roomCode: string, hostKey: string | undefined, notes: NotesContent) =>
     api.patch<{ data: Notes }>(`/meetings/${roomCode}/notes`, { hostKey, notes }).then((r) => r.data.data),
   mine: () => api.get<{ data: MyMeeting[] }>("/meetings/mine").then((r) => r.data.data),
   recordings: (roomCode: string, headers: Record<string, string>) =>

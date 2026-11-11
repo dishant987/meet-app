@@ -12,10 +12,12 @@ if (/neon\.tech/.test(url) || url === process.env.DATABASE_URL || url === proces
   process.exit(1);
 }
 
-// Test-only settings: the test database, no shared Redis, no live-database settings.
+// Test-only settings: the test database, no shared Redis, no live-database settings, never real emails.
 const env = { ...process.env, DATABASE_URL: url, DIRECT_DATABASE_URL: "" };
-for (const k of ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "PROD_DATABASE_URL", "PROD_DIRECT_DATABASE_URL"])
-  delete env[k];
+// Set to EMPTY (not deleted): the server loads .env on start and would refill deleted ones, but never
+// overrides a variable that already exists. The server treats empty as "not set".
+for (const k of ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "PROD_DATABASE_URL", "PROD_DIRECT_DATABASE_URL", "SMTP_HOST", "SMTP_USER", "SMTP_PASS"])
+  env[k] = "";
 
 const run = (cmd, args) => spawnSync(cmd, args, { stdio: "inherit", env, shell: process.platform === "win32" }).status ?? 1;
 

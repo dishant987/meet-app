@@ -29,14 +29,39 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
 
   if (!loading && user) return <Navigate to={next} replace />;
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setBusy(true);
+    // Read what's actually in the boxes: browser/password-manager autofill (e.g. Brave) can fill them
+    // without telling React, which used to send empty values.
+    const form = new FormData(e.currentTarget);
+    const v = {
+      name: String(form.get("name") ?? name).trim(),
+      email: String(form.get("email") ?? email).trim(),
+      password: String(form.get("password") ?? password),
+    };
+    setName(v.name);
+    setEmail(v.email);
+    setPassword(v.password);
+
+    // Check here first: clear messages right away, no round trip to the server for empty fields.
+    const problems: Record<string, string[]> = {};
+    if (signup && !v.name) problems.name = ["Enter your name"];
+    if (!v.email) problems.email = ["Enter your email"];
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) problems.email = ["That doesn't look like an email address"];
+    if (!v.password) problems.password = ["Enter your password"];
+    else if (signup && v.password.length < 8) problems.password = ["Use at least 8 characters"];
     setError("");
-    setFieldErrors({});
+    setFieldErrors(problems);
+    const first = Object.keys(problems)[0];
+    if (first) {
+      document.getElementById(first)?.focus();
+      return;
+    }
+
+    setBusy(true);
     try {
-      if (signup) await register(name, email, password);
-      else await login(email, password);
+      if (signup) await register(v.name, v.email, v.password);
+      else await login(v.email, v.password);
       navigate(next, { replace: true });
     } catch (err) {
       const fields = formFieldErrors(err);
@@ -56,6 +81,14 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
       setError(errorMessage(err));
     }
   }
+
+  // Typing in a field clears its error.
+  const clearError = (key: string) =>
+    setFieldErrors((f) => {
+      if (!f[key]) return f;
+      const { [key]: _gone, ...rest } = f;
+      return rest;
+    });
 
   const fieldError = (key: string) =>
     fieldErrors[key]?.[0] && (
@@ -122,25 +155,32 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
             {signup && (
               <div className="space-y-1.5">
                 <label htmlFor="name" className="text-sm font-medium">Name</label>
-                <input id="name" autoComplete="name" required maxLength={50} className={field} value={name}
+                <input id="name" name="name" autoComplete="name" required maxLength={50} className={field} value={name}
                   aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? "name-error" : undefined}
-                  onChange={(e) => setName(e.target.value)} />
+                  onChange={(e) => { setName(e.target.value); clearError("name"); }} />
                 {fieldError("name")}
               </div>
             )}
             <div className="space-y-1.5">
               <label htmlFor="email" className="text-sm font-medium">Email</label>
-              <input id="email" type="email" autoComplete="email" required className={field} value={email}
+              <input id="email" name="email" type="email" autoComplete={signup ? "email" : "username"} required className={field} value={email}
                 aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? "email-error" : undefined}
-                onChange={(e) => setEmail(e.target.value)} />
+                onChange={(e) => { setEmail(e.target.value); clearError("email"); setError(""); }} />
               {fieldError("email")}
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-sm font-medium">Password</label>
-              <input id="password" type="password" required maxLength={128}
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="password" className="text-sm font-medium">Password</label>
+                {!signup && (
+                  <Link to="/forgot-password" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
+              <input id="password" name="password" type="password" required maxLength={128}
                 autoComplete={signup ? "new-password" : "current-password"} className={field} value={password}
                 aria-invalid={!!fieldErrors.password} aria-describedby={fieldErrors.password ? "password-error" : signup ? "password-hint" : undefined}
-                onChange={(e) => setPassword(e.target.value)} />
+                onChange={(e) => { setPassword(e.target.value); clearError("password"); setError(""); }} />
               {fieldError("password") ?? (signup && <p id="password-hint" className="text-sm text-muted-foreground">At least 8 characters</p>)}
             </div>
 

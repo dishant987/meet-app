@@ -3,6 +3,9 @@ import { prisma } from "../config/db.js";
 import { logger } from "../utils/logger.js";
 import { waitUntil } from "@vercel/functions";
 import { askAI } from "./ai.service.js";
+import { env } from "../config/env.js";
+import { AppError } from "../utils/AppError.js";
+import { notesEmail, sendEmails } from "./email.service.js";
 
 // What we ask the AI for, and what we store. Lenient: missing lists become [].
 const str = z.string().trim();
@@ -86,6 +89,8 @@ async function generate(meetingId: string) {
     data: { ...result, status: "READY", provider, error: null, edited: false },
   });
   logger.info({ meetingId, provider, lines: lines.length }, "Meeting notes ready");
+  // First time ready → email them. A failed email must not turn ready notes into "failed".
+  await emailNotes(meetingId).catch((err) => logger.error({ err, meetingId }, "Emailing notes failed"));
 }
 
 /**
@@ -107,4 +112,33 @@ export async function startNotes(meetingId: string) {
   // On Vercel the function would be frozen once the response is sent; waitUntil keeps it alive until the
   // notes are written (up to the 5-minute limit). Elsewhere it's a no-op and the process just keeps running.
   waitUntil(job);
+}
+
+/**
+ * Emails the notes to everyone who joined while signed in, plus the host (guests have no email on file).
+ * Automatic sends happen once (emailedAt); the host can send again with `force`.
+ */
+export async function emailNotes(meetingId: string, opts: { force?: boolean } = {}) {
+  const m = await prisma.meeting.findUniqueOrThrow({
+    where: { id: meetingId },
+    select: {
+      title: true,
+      roomCode: true,
+      startedAt: true,
+      createdAt: true,
+      notes: true,
+      host: { select: { email: true } },
+      participants: { select: { user: { select: { email: true } } } },
+    },
+  });
+  if (!m.notes || m.notes.status !== "READY") throw new AppError(409, "NOTES_NOT_READY", "Notes aren't ready yet");
+  if (m.notes.emailedAt && !opts.force) return { sent: 0 };
+
+  const to = [...new Set([m.host?.email, ...m.participants.map((p) => p.user?.email)].filter((e): e is string => !!e))];
+  const date = (m.startedAt ?? m.createdAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const content = notesContent.parse(m.notes);
+  const email = notesEmail(m.title, date, content, `${env.CLIENT_URL}/m/${m.roomCode}/notes`);
+  await sendEmails(to.map((address) => ({ to: address, ...email })));
+  await prisma.notes.update({ where: { meetingId }, data: { emailedAt: new Date() } });
+  return { sent: to.length };
 }

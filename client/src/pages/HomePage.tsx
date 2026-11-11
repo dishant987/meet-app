@@ -8,9 +8,9 @@ import { UserMenu } from "@/components/UserMenu";
 import { saveHostKey } from "@/lib/meetingAccess";
 
 const FEATURES = [
-  { icon: Video, title: "One-click calls", text: "Start, share a link, talk.", ready: true },
-  { icon: Captions, title: "Live captions", text: "Read along as people speak.", ready: false },
-  { icon: NotebookPen, title: "AI meeting notes", text: "Summary, decisions, to-dos.", ready: false },
+  { icon: Video, title: "One-click calls", text: "Start, share a link, talk. No install." },
+  { icon: Captions, title: "Live captions", text: "Read along as people speak." },
+  { icon: NotebookPen, title: "AI meeting notes", text: "Summary, decisions and to-dos, emailed to you." },
 ];
 
 export function HomePage() {
@@ -51,8 +51,9 @@ export function HomePage() {
             <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
               Meetings that{" "}
               <span className="relative whitespace-nowrap">
-                <span className="relative z-10">take notes</span>
-                <span className="absolute inset-x-0 bottom-1 -z-0 h-3 rounded-sm bg-brand/70 sm:bottom-2 sm:h-4" aria-hidden />
+                {/* marker-pen highlight behind the lower half of the words */}
+                <span className="absolute inset-x-[-0.08em] bottom-[0.06em] h-[0.38em] -rotate-1 rounded-md bg-brand/55" aria-hidden />
+                <span className="relative">take notes</span>
               </span>{" "}
               for you.
             </h1>
@@ -104,14 +105,11 @@ export function HomePage() {
           </div>
 
           <ul className="grid gap-3 sm:grid-cols-3">
-            {FEATURES.map(({ icon: Icon, title, text, ready }) => (
+            {FEATURES.map(({ icon: Icon, title, text }) => (
               <li key={title} className="rounded-2xl border border-border bg-card/60 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="flex size-9 items-center justify-center rounded-xl bg-brand/20 text-foreground">
-                    <Icon className="size-4.5" aria-hidden />
-                  </span>
-                  {!ready && <span className="rounded-lg bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Soon</span>}
-                </div>
+                <span className="mb-3 flex size-9 items-center justify-center rounded-xl bg-brand/20 text-foreground">
+                  <Icon className="size-4.5" aria-hidden />
+                </span>
                 <p className="text-sm font-medium">{title}</p>
                 <p className="text-sm text-muted-foreground">{text}</p>
               </li>

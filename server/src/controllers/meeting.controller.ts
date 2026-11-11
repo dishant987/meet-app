@@ -69,3 +69,7 @@ export async function listRecordings(req: Request<{ roomCode: string }>, res: Re
   res.set("cache-control", "no-store");
   res.json({ success: true, data: await meetingService.listRecordings(req.params.roomCode, access(req)) });
 }
+
+export async function emailNotes(req: Request<{ roomCode: string }>, res: Response) {
+  res.json({ success: true, data: await meetingService.emailNotesAgain(req.params.roomCode, access(req)) });
+}

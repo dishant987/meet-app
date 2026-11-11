@@ -51,6 +51,10 @@ export async function changePassword(userId: string, currentPassword: string | u
       throw new AppError(400, "WRONG_PASSWORD", "Your current password is wrong", { currentPassword: ["Your current password is wrong"] });
   }
   return publicUser(
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) }, select: USER_FIELDS }),
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await hashPassword(newPassword), sessionVersion: { increment: 1 } }, // signs out other devices
+      select: USER_FIELDS,
+    }),
   );
 }

@@ -31,3 +31,13 @@ export async function google(req: Request, res: Response) {
   await signIn(res, await auth.loginWithGoogle(req.body.credential));
 }
 
+
+/** Same answer whether or not the email has an account (no account probing). */
+export async function forgotPassword(req: Request, res: Response) {
+  await auth.requestPasswordReset(req.body.email).catch((err) => req.log.error({ err }, "Password reset email failed"));
+  res.json({ success: true, data: { message: "If an account exists for that email, we've sent a reset link." } });
+}
+
+export async function resetPassword(req: Request, res: Response) {
+  await signIn(res, await auth.resetPassword(req.body.token, req.body.password));
+}

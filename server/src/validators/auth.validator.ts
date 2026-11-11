@@ -14,3 +14,9 @@ export const loginBody = z.object({
 });
 
 export const googleBody = z.object({ credential: z.string().min(20).max(5000) });
+
+export const forgotBody = z.object({ email });
+export const resetBody = z.object({
+  token: z.string().min(20).max(200),
+  password: z.string().min(8, "Use at least 8 characters").max(128),
+});

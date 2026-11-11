@@ -1,9 +1,10 @@
-import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { SignJWT, createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { prisma } from "../config/db.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
+import { resetPasswordEmail, sendEmail } from "./email.service.js";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 const secret = new TextEncoder().encode(env.JWT_SECRET);
@@ -78,8 +79,10 @@ export async function login(email: string, password: string) {
   return publicUser(user);
 }
 
+/** Session token. It carries the account's sessionVersion; bumping that (password change/reset) ends older sessions. */
 export async function createSessionToken(userId: string) {
-  return new SignJWT({})
+  const { sessionVersion } = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { sessionVersion: true } });
+  return new SignJWT({ v: sessionVersion })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -87,13 +90,14 @@ export async function createSessionToken(userId: string) {
     .sign(secret);
 }
 
-/** Returns the user for a valid session token, or null (expired, tampered, deleted user). */
+/** Returns the user for a valid session token, or null (expired, tampered, deleted user, or ended by a password change). */
 export async function userFromToken(token: string): Promise<PublicUser | null> {
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
     if (!payload.sub) return null;
-    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: USER_FIELDS });
-    return user && publicUser(user);
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { ...USER_FIELDS, sessionVersion: true } });
+    if (!user || (payload.v ?? 0) !== user.sessionVersion) return null;
+    return publicUser(user);
   } catch {
     return null;
   }
@@ -134,4 +138,44 @@ export async function loginWithGoogle(credential: string, keys: JWTVerifyGetKey 
       await prisma.user.update({ where: { id: byEmail.id }, data: { googleId: claims.sub, pictureUrl }, select: USER_FIELDS }),
     );
   return publicUser(await prisma.user.create({ data: { name, email, googleId: claims.sub, pictureUrl }, select: USER_FIELDS }));
+}
+
+// ---------- forgot password ----------
+
+const RESET_MINUTES = 30;
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/**
+ * Emails a one-time reset link if the account exists. Always behaves the same for unknown emails,
+ * so nobody can use this to find out which emails have accounts.
+ */
+export async function requestPasswordReset(email: string) {
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } });
+  if (!user) return;
+  const token = randomBytes(32).toString("base64url");
+  await prisma.$transaction([
+    // only the newest link works
+    prisma.passwordReset.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } }),
+    prisma.passwordReset.create({
+      data: { userId: user.id, tokenHash: sha256(token), expiresAt: new Date(Date.now() + RESET_MINUTES * 60_000) },
+    }),
+  ]);
+  const link = `${env.CLIENT_URL}/reset-password?token=${token}`;
+  await sendEmail({ to: user.email, ...resetPasswordEmail(user.name, link, RESET_MINUTES) });
+}
+
+/** Sets a new password from a reset link; the link is used up and all other sessions end. */
+export async function resetPassword(token: string, password: string) {
+  const reset = await prisma.passwordReset.findUnique({ where: { tokenHash: sha256(token) } });
+  if (!reset || reset.usedAt || reset.expiresAt < new Date())
+    throw new AppError(400, "RESET_LINK_INVALID", "This reset link is invalid or has expired. Ask for a new one.");
+  const [, user] = await prisma.$transaction([
+    prisma.passwordReset.update({ where: { id: reset.id }, data: { usedAt: new Date() } }),
+    prisma.user.update({
+      where: { id: reset.userId },
+      data: { passwordHash: await hashPassword(password), sessionVersion: { increment: 1 } },
+      select: USER_FIELDS,
+    }),
+  ]);
+  return publicUser(user);
 }

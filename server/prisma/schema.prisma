@@ -82,6 +82,7 @@ model Notes {
   provider      String?
   error         String?
   edited        Boolean     @default(false)
+  emailedAt     DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 }
@@ -99,9 +100,25 @@ model User {
   avatarVersion Int          @default(0)
   // Photo from Google, used when no photo was uploaded.
   pictureUrl    String?
+  // Bumped on password change/reset: sessions carry this number, so older sessions on other devices stop working.
+  sessionVersion Int         @default(0)
   createdAt    DateTime      @default(now())
   hosted       Meeting[]     @relation("HostedMeetings")
   joined       Participant[]
+  resets       PasswordReset[]
+}
+
+// "Forgot password" links. Only a SHA-256 hash of the token is stored; links expire and work once.
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 enum RecordingStatus {
