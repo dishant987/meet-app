@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/lib/theme";
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
@@ -33,6 +34,7 @@ export const googleEnabled = !!CLIENT_ID;
 export function GoogleButton({ onCredential }: { onCredential: (credential: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  const { dark } = useTheme();
   const cb = useRef(onCredential);
   useEffect(() => {
     cb.current = onCredential;
@@ -46,8 +48,9 @@ export function GoogleButton({ onCredential }: { onCredential: (credential: stri
         const google = (window as unknown as { google?: Gsi }).google;
         if (cancelled || !google || !box.current) return;
         google.accounts.id.initialize({ client_id: CLIENT_ID, callback: (r) => cb.current(r.credential) });
+        box.current.replaceChildren(); // re-draw when the theme changes
         google.accounts.id.renderButton(box.current, {
-          theme: document.documentElement.classList.contains("dark") ? "filled_black" : "outline",
+          theme: dark ? "filled_black" : "outline",
           size: "large",
           shape: "pill",
           text: "continue_with",
@@ -58,9 +61,10 @@ export function GoogleButton({ onCredential }: { onCredential: (credential: stri
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dark]);
 
   if (!CLIENT_ID) return null;
   if (failed) return <p className="text-center text-sm text-muted-foreground">Google sign-in couldn't load. Use email instead.</p>;
-  return <div ref={box} className="flex min-h-11 w-full justify-center" />;
+  // colorScheme light: in dark mode the browser otherwise paints Google's button frame with a white box around it
+  return <div ref={box} style={{ colorScheme: "light" }} className="flex min-h-11 w-full justify-center" />;
 }
