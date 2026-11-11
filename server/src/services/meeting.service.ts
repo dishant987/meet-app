@@ -6,25 +6,80 @@ import { env } from "../config/env.js";
 import { closeRoom, createJoinToken, isRoomEmpty, muteMicrophone, removeFromRoom } from "./livekit.service.js";
 import { emailNotes, startNotes, type NotesContent } from "./notes.service.js";
 import { downloadUrl, storedSize, uploadUrl } from "./storage.service.js";
+import { inviteEmail, sendEmails } from "./email.service.js";
+import { formatWhen, inviteIcs } from "./calendar.service.js";
+import { logger } from "../utils/logger.js";
+import { waitUntil } from "@vercel/functions";
+import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 import { avatarUrl } from "./auth.service.js";
 
 const letters = (n: number) => Array.from({ length: n }, () => String.fromCharCode(97 + randomInt(26))).join("");
 const newRoomCode = () => `${letters(3)}-${letters(4)}-${letters(3)}`; // e.g. abc-defg-hij
 
-export async function createMeeting(title?: string, hostId?: string) {
+export type NewMeeting = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
+
+export async function createMeeting(input: NewMeeting, hostId?: string) {
+  const invitees = [...new Set(input.invitees ?? [])];
+  const scheduledFor = input.scheduledFor ? new Date(input.scheduledFor) : null;
   // 26^10 codes, so a clash is near impossible; retry a few times just in case.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       // hostKey goes back only in this response; the creator's browser keeps it to end the meeting later.
-      return await prisma.meeting.create({
-        data: { title: title || "Quick meeting", roomCode: newRoomCode(), hostKey: randomBytes(24).toString("base64url"), hostId },
-        select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true },
+      const meeting = await prisma.meeting.create({
+        data: {
+          title: input.title || (scheduledFor ? "Scheduled meeting" : "Quick meeting"),
+          roomCode: newRoomCode(),
+          hostKey: randomBytes(24).toString("base64url"),
+          hostId,
+          scheduledFor,
+          durationMin: scheduledFor ? (input.durationMin ?? 30) : null,
+          invites: invitees.length ? { create: invitees.map((email) => ({ email })) } : undefined,
+        },
+        select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true, scheduledFor: true, durationMin: true },
       });
+      // emails go out after we answer (Vercel keeps the function alive for waitUntil)
+      if (invitees.length) waitUntil(sendInvites(meeting.id, input.timeZone).catch((err) => logger.error({ err }, "Invites failed")));
+      return { ...meeting, invited: invitees.length };
     } catch (err) {
       if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
     }
   }
   throw new AppError(500, "ROOM_CODE_FAILED", "Could not create a meeting code, try again");
+}
+
+/** One email with a calendar invite per guest (nobody sees the other guests' addresses). */
+export async function sendInvites(meetingId: string, timeZone?: string) {
+  const m = await prisma.meeting.findUniqueOrThrow({
+    where: { id: meetingId },
+    select: { id: true, title: true, roomCode: true, scheduledFor: true, durationMin: true, host: { select: { name: true, email: true } }, invites: { select: { email: true } } },
+  });
+  if (!m.scheduledFor || !m.invites.length) return { sent: 0 };
+  const link = `${env.CLIENT_URL}/m/${m.roomCode}`;
+  const hostName = m.host?.name ?? "Someone";
+  const minutes = m.durationMin ?? 30;
+  const when = formatWhen(m.scheduledFor, timeZone);
+  const base = inviteEmail(hostName, m.title, when, minutes, link);
+  await sendEmails(
+    m.invites.map(({ email }) => ({
+      ...base,
+      to: email,
+      replyTo: m.host?.email,
+      icalEvent: {
+        method: "REQUEST" as const,
+        content: inviteIcs({
+          uid: `${m.id}@meetapp`,
+          start: m.scheduledFor!,
+          minutes,
+          title: m.title,
+          description: `Join: ${link}`,
+          url: link,
+          organizer: { name: `${hostName} (MeetApp)`, email: env.SMTP_USER || "noreply@meetapp.invalid" },
+          attendee: email,
+        }),
+      },
+    })),
+  );
+  return { sent: m.invites.length };
 }
 
 export async function getMeeting(roomCode: string) {
@@ -232,33 +287,114 @@ export async function getTranscript(roomCode: string, access: Access) {
   });
 }
 
-/** Meetings I hosted or joined while signed in, newest first, with their notes status. */
-export async function listMyMeetings(userId: string) {
-  const meetings = await prisma.meeting.findMany({
-    where: { OR: [{ hostId: userId }, { participants: { some: { userId, status: { in: ["ADMITTED", "REMOVED"] } } } }] },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      title: true,
-      roomCode: true,
-      status: true,
-      createdAt: true,
-      startedAt: true,
-      endedAt: true,
-      hostId: true,
-      notes: { select: { status: true, title: true, summary: true } },
-      _count: { select: { transcript: true } },
-      participants: { where: { status: { in: ["ADMITTED", "REMOVED"] } }, distinct: ["name"], select: { name: true }, take: 8 },
-    },
-  });
-  return meetings.map(({ hostId, _count, participants, notes, ...m }) => ({
-    ...m,
-    isHost: hostId === userId,
-    lineCount: _count.transcript,
-    attendees: participants.map((p) => p.name),
-    notes: notes && { status: notes.status, title: notes.title, summary: notes.summary.slice(0, 220) },
-  }));
+// ---------- my meetings (paged, searched and filtered in the database) ----------
+
+const ATTENDED = { in: ["ADMITTED", "REMOVED"] as ("ADMITTED" | "REMOVED")[] };
+
+/** Meetings I host, joined while signed in, or was invited to by email. */
+async function whereMine(userId: string, role: MyMeetingsQuery["role"] = "all"): Promise<Prisma.MeetingWhereInput> {
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
+  const hosted = { hostId: userId };
+  const joined = { participants: { some: { userId, status: ATTENDED } } };
+  const invited = { invites: { some: { email: me.email } }, NOT: { hostId: userId } };
+  return role === "hosted" ? hosted : role === "joined" ? joined : role === "invited" ? invited : { OR: [hosted, joined, invited] };
+}
+
+// "upcoming" = has a planned time; a quick meeting nobody opened yet only shows under "all"
+const STATUS: Record<Exclude<MyMeetingsQuery["status"], "all">, Prisma.MeetingWhereInput> = {
+  live: { status: "LIVE" },
+  upcoming: { status: "SCHEDULED", scheduledFor: { not: null } },
+  ended: { status: "ENDED" },
+};
+
+const listSelect = {
+  id: true,
+  title: true,
+  roomCode: true,
+  status: true,
+  createdAt: true,
+  startedAt: true,
+  endedAt: true,
+  scheduledFor: true,
+  durationMin: true,
+  hostId: true,
+  notes: { select: { status: true, title: true, summary: true } },
+  _count: { select: { transcript: true, invites: true } },
+  participants: { where: { status: ATTENDED }, distinct: ["name"], select: { name: true }, take: 8 },
+} satisfies Prisma.MeetingSelect;
+
+type ListRow = Prisma.MeetingGetPayload<{ select: typeof listSelect }>;
+const toItem = (userId: string) => ({ hostId, _count, participants, notes, ...m }: ListRow) => ({
+  ...m,
+  isHost: hostId === userId,
+  lineCount: _count.transcript,
+  invitedCount: _count.invites,
+  attendees: participants.map((p) => p.name),
+  notes: notes && { status: notes.status, title: notes.title, summary: notes.summary.slice(0, 220) },
+});
+
+export async function listMyMeetings(userId: string, query: MyMeetingsQuery) {
+  const mine = await whereMine(userId, query.role);
+  const like = { contains: query.q, mode: "insensitive" as const };
+  const search: Prisma.MeetingWhereInput = query.q
+    ? { OR: [{ title: like }, { notes: { is: { OR: [{ title: like }, { summary: like }] } } }, { participants: { some: { name: like } } }] }
+    : {};
+  const base: Prisma.MeetingWhereInput = { AND: [mine, search] };
+  const where: Prisma.MeetingWhereInput = query.status === "all" ? base : { AND: [base, STATUS[query.status]] };
+  const orderBy: Prisma.MeetingOrderByWithRelationInput[] =
+    query.sort === "oldest"
+      ? [{ createdAt: "asc" }]
+      : query.sort === "soonest"
+        ? [{ scheduledFor: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }]
+        : [{ createdAt: "desc" }];
+
+  const tab = (w: Prisma.MeetingWhereInput) => prisma.meeting.count({ where: { AND: [base, w] } });
+  const [total, rows, all, live, upcoming, ended] = await Promise.all([
+    prisma.meeting.count({ where }),
+    prisma.meeting.findMany({ where, orderBy, skip: (query.page - 1) * query.pageSize, take: query.pageSize, select: listSelect }),
+    prisma.meeting.count({ where: base }),
+    tab(STATUS.live),
+    tab(STATUS.upcoming),
+    tab(STATUS.ended),
+  ]);
+  return {
+    items: rows.map(toItem(userId)),
+    total,
+    page: query.page,
+    pageSize: query.pageSize,
+    pageCount: Math.max(1, Math.ceil(total / query.pageSize)),
+    counts: { all, live, upcoming, ended },
+  };
+}
+
+/** Dashboard numbers for the last 30 days, plus what's live and coming up. */
+export async function myStats(userId: string) {
+  const mine = await whereMine(userId);
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  const recent: Prisma.MeetingWhereInput = { AND: [mine, { createdAt: { gte: since } }] };
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });
+  const [meetings, timed, notesReady, people, live, upcoming] = await Promise.all([
+    prisma.meeting.count({ where: recent }),
+    prisma.meeting.findMany({ where: { AND: [recent, { status: "ENDED" }] }, select: { startedAt: true, endedAt: true } }),
+    prisma.meeting.count({ where: { AND: [recent, { notes: { is: { status: "READY" } } }] } }),
+    prisma.participant.findMany({
+      where: { meeting: recent, status: ATTENDED, OR: [{ userId: null }, { userId: { not: userId } }], name: { not: me.name } },
+      distinct: ["name"],
+      select: { name: true },
+    }),
+    prisma.meeting.findMany({ where: { AND: [mine, { status: "LIVE" }] }, orderBy: { startedAt: "desc" }, take: 5, select: listSelect }),
+    prisma.meeting.findMany({
+      where: { AND: [mine, { status: "SCHEDULED", scheduledFor: { gte: new Date(Date.now() - 60 * 60_000) } }] },
+      orderBy: { scheduledFor: "asc" },
+      take: 5,
+      select: listSelect,
+    }),
+  ]);
+  const minutes = timed.reduce(
+    (sum, m) => (m.startedAt && m.endedAt ? sum + Math.max(1, Math.round((m.endedAt.getTime() - m.startedAt.getTime()) / 60000)) : sum),
+    0,
+  );
+  return { meetings, minutes, notesReady, peopleMet: people.length, live: live.map(toItem(userId)), upcoming: upcoming.map(toItem(userId)) };
 }
 
 // ---------- recordings (host records in the browser, uploads straight to Backblaze B2) ----------

@@ -96,6 +96,27 @@ export const notesForm = z.object({
     .max(50, "Up to 50 to-dos"),
 });
 
+/** Schedule a meeting: local date + time, length, and guests' emails (comma, space or new line between). */
+export const scheduleForm = z
+  .object({
+    title: z.string().trim().max(100, "Keep the title under 100 characters"),
+    date: z.string().min(1, "Pick a date"),
+    time: z.string().min(1, "Pick a time"),
+    durationMin: z.coerce.number().int().min(5).max(480),
+    guests: z
+      .string()
+      .transform((s) => [...new Set(s.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))])
+      .pipe(z.array(z.email("One of the guest emails isn't valid")).max(20, "Invite up to 20 people")),
+  })
+  .transform((v, ctx) => {
+    const start = new Date(`${v.date}T${v.time}`); // browser's local time
+    const ms = start.getTime();
+    if (Number.isNaN(ms)) ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date and time" });
+    else if (ms < Date.now() - 60_000) ctx.addIssue({ code: "custom", path: ["time"], message: "Pick a time in the future" });
+    else if (ms > Date.now() + 365 * 86_400_000) ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date within the next year" });
+    return { title: v.title, scheduledFor: start.toISOString(), durationMin: v.durationMin, invitees: v.guests };
+  });
+
 // ---------- helper ----------
 export type FormErrors = Record<string, string>;
 

@@ -11,7 +11,8 @@
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "build": "esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.js --log-level=warning",
-    "db:deploy:prod": "node --env-file=.env scripts/migrate-prod.mjs"
+    "db:deploy:prod": "node --env-file=.env scripts/migrate-prod.mjs",
+    "seed:demo": "tsx --env-file=.env scripts/seed-demo.ts"
   },
   "keywords": [],
   "type": "module",

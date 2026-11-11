@@ -4,9 +4,35 @@ export const roomCodeParams = z.object({
   roomCode: z.string().regex(/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/, "Invalid meeting code"),
 });
 
-export const createMeetingBody = z.object({
-  title: z.string().trim().max(100).optional(),
+export const createMeetingBody = z
+  .object({
+    title: z.string().trim().max(100).optional(),
+    // scheduling (optional): start time with its UTC offset, e.g. 2026-11-12T10:00:00.000Z
+    scheduledFor: z.iso.datetime({ offset: true }).optional(),
+    durationMin: z.number().int().min(5).max(480).optional(),
+    invitees: z.array(z.string().trim().toLowerCase().pipe(z.email("Enter valid email addresses"))).max(20, "Invite up to 20 people").optional(),
+    timeZone: z.string().max(60).optional(), // host's zone, only for writing the time in the email
+  })
+  .refine((b) => !b.invitees?.length || b.scheduledFor, { path: ["invitees"], message: "Pick a date and time to send invites" })
+  .refine((b) => !b.scheduledFor || new Date(b.scheduledFor).getTime() > Date.now() - 5 * 60_000, {
+    path: ["scheduledFor"],
+    message: "Pick a time in the future",
+  })
+  .refine((b) => !b.scheduledFor || new Date(b.scheduledFor).getTime() < Date.now() + 366 * 86_400_000, {
+    path: ["scheduledFor"],
+    message: "Pick a date within the next year",
+  });
+
+/** My meetings list: search, filters, sort and page (all done in the database). */
+export const myMeetingsQuery = z.object({
+  q: z.string().trim().max(100).default(""),
+  status: z.enum(["all", "live", "upcoming", "ended"]).default("all"),
+  role: z.enum(["all", "hosted", "joined", "invited"]).default("all"),
+  sort: z.enum(["newest", "oldest", "soonest"]).default("newest"),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(10),
 });
+export type MyMeetingsQuery = z.infer<typeof myMeetingsQuery>;
 
 export const joinTokenBody = z.object({
   name: z.string().trim().min(1, "Name is required").max(50),

@@ -2,7 +2,15 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { env, isProd } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 
-export type Email = { to: string | string[]; subject: string; html: string; text: string };
+export type Email = {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text: string;
+  replyTo?: string;
+  /** Calendar invite (.ics). Email apps show "Add to calendar" / Yes-No-Maybe. */
+  icalEvent?: { method: "REQUEST" | "CANCEL"; content: string };
+};
 
 /**
  * Without SMTP settings (local development and tests) emails aren't sent: they're kept here and logged,
@@ -36,7 +44,15 @@ export async function sendEmail(email: Email) {
 ${email.text}`);
     return;
   }
-  await t.sendMail({ from: env.EMAIL_FROM || env.SMTP_USER, to: email.to, subject: email.subject, html: email.html, text: email.text });
+  await t.sendMail({
+    from: env.EMAIL_FROM || env.SMTP_USER,
+    to: email.to,
+    replyTo: email.replyTo,
+    subject: email.subject,
+    html: email.html,
+    text: email.text,
+    icalEvent: email.icalEvent && { ...email.icalEvent, filename: "invite.ics" },
+  });
 }
 
 /** Sends several emails, one per recipient, so nobody sees the others' addresses. */
@@ -56,13 +72,13 @@ export async function sendEmails(emails: Email[]) {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-function layout(title: string, body: string) {
+function layout(title: string, body: string, footer = "You got this email because of your MeetApp account.") {
   return `<!doctype html><html><body style="margin:0;background:#f5f6f8;font-family:Arial,Helvetica,sans-serif;color:#15161c">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;padding:28px">
 <tr><td style="font-size:18px;font-weight:bold;padding-bottom:16px"><span style="display:inline-block;background:#c8f25c;border-radius:8px;padding:2px 8px;margin-right:6px">&#9646;</span>MeetApp</td></tr>
 <tr><td><h1 style="font-size:22px;margin:0 0 12px">${esc(title)}</h1>${body}</td></tr>
-</table><p style="font-size:12px;color:#8a8c96;margin-top:16px">You got this email because of your MeetApp account.</p>
+</table><p style="font-size:12px;color:#8a8c96;margin-top:16px">${esc(footer)}</p>
 </td></tr></table></body></html>`;
 }
 const button = (href: string, label: string) =>
@@ -108,5 +124,23 @@ export function notesEmail(meetingTitle: string, dateLine: string, n: NotesForEm
       n.decisions.length ? "\nDecisions:\n" + n.decisions.map((d) => `- ${d}`).join("\n") : "",
       `\nFull notes: ${link}`,
     ].join("\n"),
+  };
+}
+
+/** Invite to a scheduled meeting (the .ics calendar part is added by the caller). */
+export function inviteEmail(hostName: string, title: string, when: string, minutes: number, link: string): Omit<Email, "to"> {
+  return {
+    subject: `Invitation: ${title} · ${when}`,
+    html: layout(
+      title,
+      `<p><b>${esc(hostName)}</b> invited you to a video meeting on MeetApp.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:15px;margin:8px 0">
+<tr><td style="color:#5b5d68;padding:4px 16px 4px 0">When</td><td>${esc(when)}</td></tr>
+<tr><td style="color:#5b5d68;padding:4px 16px 4px 0">Length</td><td>${minutes} minutes</td></tr>
+<tr><td style="color:#5b5d68;padding:4px 16px 4px 0">Link</td><td><a href="${esc(link)}" style="color:#15161c">${esc(link)}</a></td></tr>
+</table>${button(link, "Join meeting")}<p style="color:#5b5d68;font-size:14px">Use the invite to add it to your calendar. No account or app needed to join.</p>`,
+      `${hostName} invited you through MeetApp.`,
+    ),
+    text: `${hostName} invited you to "${title}" on MeetApp.\n\nWhen: ${when}\nLength: ${minutes} minutes\nJoin: ${link}\n\nNo account or app needed to join.`,
   };
 }

@@ -1,9 +1,15 @@
 import type { Request, Response } from "express";
 import * as meetingService from "../services/meeting.service.js";
+import { AppError } from "../utils/AppError.js";
+import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 
 // Express 5 forwards rejected promises to errorHandler, so no try/catch here.
 export async function create(req: Request, res: Response) {
-  const meeting = await meetingService.createMeeting(req.body.title, req.user?.id);
+  const { title, scheduledFor, durationMin, invitees, timeZone } = req.body;
+  // scheduling and invites need an account (so emails can't be sent anonymously)
+  if ((scheduledFor || invitees?.length) && !req.user)
+    throw new AppError(401, "SIGN_IN_TO_SCHEDULE", "Sign in to schedule meetings and send invites");
+  const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone }, req.user?.id);
   res.status(201).json({ success: true, data: meeting });
 }
 
@@ -53,7 +59,12 @@ export async function getTranscript(req: Request<{ roomCode: string }>, res: Res
 
 export async function mine(req: Request, res: Response) {
   res.set("cache-control", "no-store");
-  res.json({ success: true, data: await meetingService.listMyMeetings(req.user!.id) });
+  res.json({ success: true, data: await meetingService.listMyMeetings(req.user!.id, req.query as unknown as MyMeetingsQuery) });
+}
+
+export async function stats(req: Request, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.myStats(req.user!.id) });
 }
 
 export async function startRecording(req: Request<{ roomCode: string }>, res: Response) {

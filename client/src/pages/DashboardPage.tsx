@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { AlertTriangle, ArrowRight, CalendarClock, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarClock, CalendarPlus, Loader2 } from "lucide-react";
 import { VideoIcon, type VideoIconHandle } from "@animateicons/react/lucide/video-icon";
 import { ArrowRightIcon, type ArrowRightIconHandle } from "@animateicons/react/lucide/arrow-right-icon";
 import { LinkIcon, type LinkIconHandle } from "@animateicons/react/lucide/link-icon";
@@ -11,12 +11,11 @@ import { UsersIcon } from "@animateicons/react/lucide/users-icon";
 import { useIconHover } from "@/lib/useIconHover";
 import { cn } from "cn";
 import { useAuth } from "@/lib/auth";
-import { errorMessage, meetingsApi, type MyMeeting } from "@/lib/api";
+import { errorMessage, meetingsApi, type MeetingsPage, type MyMeeting, type MyStats } from "@/lib/api";
 import { check, joinCodeForm } from "@/lib/validation";
-import { statusChip, when } from "@/lib/meetingDisplay";
+import { openLink, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
+import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { useStartMeeting } from "@/lib/useStartMeeting";
-
-const DAY = 86_400_000;
 
 function greeting() {
   const h = new Date().getHours();
@@ -28,25 +27,17 @@ function duration(mins: number) {
   return `${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60} min` : ""}`.trim();
 }
 
-/** Numbers for the last 30 days, worked out from the meetings list. */
-function stats(meetings: MyMeeting[], me: string) {
-  const recent = meetings.filter((m) => Date.now() - +new Date(m.createdAt!) < 30 * DAY);
-  const minutes = recent.reduce(
-    (sum, m) => (m.startedAt && m.endedAt ? sum + Math.max(1, Math.round((+new Date(m.endedAt) - +new Date(m.startedAt)) / 60000)) : sum),
-    0,
-  );
-  const people = new Set(recent.flatMap((m) => m.attendees).filter((a) => a !== me));
-  return [
-    { label: "Meetings", value: String(recent.length), Icon: CalendarClockIcon },
-    { label: "Time in calls", value: duration(minutes), Icon: ClockIcon },
-    { label: "Notes ready", value: String(recent.filter((m) => m.notes?.status === "READY").length), Icon: NotebookPenIcon },
-    { label: "People met", value: String(people.size), Icon: UsersIcon },
-  ];
-}
+/** The four tiles (the server counts them). */
+const tiles = (s: MyStats) => [
+  { label: "Meetings", value: String(s.meetings), Icon: CalendarClockIcon },
+  { label: "Time in calls", value: duration(s.minutes), Icon: ClockIcon },
+  { label: "Notes ready", value: String(s.notesReady), Icon: NotebookPenIcon },
+  { label: "People met", value: String(s.peopleMet), Icon: UsersIcon },
+];
 
 const card = "rounded-3xl border border-border bg-card";
 
-type Stat = ReturnType<typeof stats>[number];
+type Stat = ReturnType<typeof tiles>[number];
 
 function StatTile({ label, value, Icon }: Stat) {
   const { ref, hover } = useIconHover<CalendarClockIconHandle>();
@@ -79,7 +70,7 @@ function RecentRow({ m }: { m: MyMeeting }) {
   return (
     <li>
       <Link
-        to={isLive ? `/m/${m.roomCode}` : `/m/${m.roomCode}/notes`}
+        to={openLink(m).to}
         {...hover}
         className="group flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/60 focus-visible:bg-muted focus-visible:outline-none sm:px-5"
       >
@@ -89,8 +80,7 @@ function RecentRow({ m }: { m: MyMeeting }) {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{m.notes?.title || m.title}</span>
           <span className="block truncate text-xs text-muted-foreground">
-            {when(m)}
-            {m.isHost && " · You hosted"}
+            {when(m)} · {roleLabel(m)}
           </span>
         </span>
         <span className={cn("hidden shrink-0 rounded-lg px-2 py-1 text-xs font-semibold sm:inline", chip.cls)}>{chip.text}</span>
@@ -104,7 +94,8 @@ export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { busy, start, createLink } = useStartMeeting();
-  const [meetings, setMeetings] = useState<MyMeeting[] | null>(null);
+  const [stats, setStats] = useState<MyStats | null>(null);
+  const [recent, setRecent] = useState<MeetingsPage | null>(null);
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState("");
@@ -112,15 +103,19 @@ export function DashboardPage() {
   const joinIcon = useIconHover<ArrowRightIconHandle>();
   const linkIcon = useIconHover<LinkIconHandle>();
 
-  useEffect(() => {
-    meetingsApi
-      .mine()
-      .then(setMeetings)
+  const load = useCallback(() => {
+    Promise.all([meetingsApi.stats(), meetingsApi.mine({ pageSize: 5 })])
+      .then(([s, r]) => {
+        setStats(s);
+        setRecent(r);
+        setError("");
+      })
       .catch((e) => setError(errorMessage(e)));
   }, []);
+  useEffect(load, [load]);
 
-  const numbers = useMemo(() => (meetings && user ? stats(meetings, user.name) : null), [meetings, user]);
-  const live = meetings?.filter((m) => m.status !== "ENDED") ?? [];
+  const meetings = recent?.items ?? null;
+  const live = stats?.live ?? [];
 
   function join(e: FormEvent) {
     e.preventDefault();
@@ -141,7 +136,7 @@ export function DashboardPage() {
       </div>
 
       {/* quick actions */}
-      <section aria-label="Quick actions" className="grid gap-3 md:grid-cols-3">
+      <section aria-label="Quick actions" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <button
           type="button"
           onClick={start}
@@ -212,6 +207,27 @@ export function DashboardPage() {
             <span className="block text-sm text-muted-foreground">Copies a meeting link to share now and start any time</span>
           </span>
         </button>
+
+        <ScheduleDialog
+          onScheduled={load}
+          trigger={
+            <button
+              type="button"
+              className={cn(
+                card,
+                "group flex flex-col items-start gap-6 p-5 text-left transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
+              )}
+            >
+              <span className="flex size-10 items-center justify-center rounded-2xl bg-brand/20">
+                <CalendarPlus className="size-5 transition-transform group-hover:-rotate-6 group-hover:scale-110" aria-hidden />
+              </span>
+              <span>
+                <span className="block text-lg font-semibold">Schedule</span>
+                <span className="block text-sm text-muted-foreground">Pick a time and email calendar invites</span>
+              </span>
+            </button>
+          }
+        />
       </section>
 
       {error && (
@@ -242,14 +258,33 @@ export function DashboardPage() {
         </section>
       )}
 
+      {/* coming up */}
+      {stats && stats.upcoming.length > 0 && (
+        <section aria-labelledby="upcoming-title" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 id="upcoming-title" className="text-sm font-medium text-muted-foreground">
+              Upcoming
+            </h2>
+            <ArrowLink to="/meetings?status=upcoming&sort=soonest" className="flex items-center gap-1 text-sm font-medium hover:underline">
+              All upcoming
+            </ArrowLink>
+          </div>
+          <ul className={cn(card, "divide-y divide-border overflow-hidden")}>
+            {stats.upcoming.map((m) => (
+              <RecentRow key={m.id} m={m} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* last 30 days */}
       <section aria-labelledby="stats-title" className="space-y-3">
         <h2 id="stats-title" className="text-sm font-medium text-muted-foreground">
           Last 30 days
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {numbers
-            ? numbers.map((n) => <StatTile key={n.label} {...n} />)
+          {stats
+            ? tiles(stats).map((n) => <StatTile key={n.label} {...n} />)
             : [0, 1, 2, 3].map((i) => <div key={i} className="h-[7.5rem] animate-pulse rounded-3xl bg-muted" />)}
         </div>
       </section>
@@ -260,9 +295,9 @@ export function DashboardPage() {
           <h2 id="recent-title" className="text-sm font-medium text-muted-foreground">
             Recent meetings
           </h2>
-          {meetings && meetings.length > 0 && (
+          {recent && recent.total > 0 && (
             <ArrowLink to="/meetings" className="flex items-center gap-1 text-sm font-medium hover:underline">
-              View all
+              View all {recent?.total}
             </ArrowLink>
           )}
         </div>
@@ -276,7 +311,7 @@ export function DashboardPage() {
           </div>
         ) : (
           <ul className={cn(card, "divide-y divide-border overflow-hidden")}>
-            {meetings.slice(0, 5).map((m) => (
+            {meetings.map((m) => (
               <RecentRow key={m.id} m={m} />
             ))}
           </ul>

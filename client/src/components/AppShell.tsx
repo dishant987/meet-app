@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { PageLoading } from "@/components/PageLoading";
 import { Link, Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { Loader2, Menu, X } from "lucide-react";
 import { HouseIcon, type HouseIconHandle } from "@animateicons/react/lucide/house-icon";
@@ -137,7 +138,16 @@ export function AppShell() {
           </Link>
           <AccountMenu />
         </header>
-        <main className="flex-1">{user ? <Outlet /> : <Loader2 className="mx-auto mt-20 size-6 animate-spin text-muted-foreground" />}</main>
+        <main className="flex-1">
+          {/* the page area loads on its own, so the sidebar stays put while switching pages */}
+          {user ? (
+            <Suspense fallback={<PageLoading inline />}>
+              <Outlet />
+            </Suspense>
+          ) : (
+            <PageLoading inline />
+          )}
+        </main>
       </div>
     </div>
   );

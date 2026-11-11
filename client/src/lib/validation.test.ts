@@ -60,3 +60,17 @@ test("call name, chat and notes limits", () => {
     "Owner names can be up to 100 characters",
   );
 });
+
+test("schedule form: future local time, guest emails split and de-duplicated", async () => {
+  const { scheduleForm } = await import("./validation.ts");
+  const d = new Date(Date.now() + 2 * 86_400_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const ok = check(scheduleForm, { title: " Sync ", date, time: "10:30", durationMin: "45", guests: "A@x.co, b@x.co\na@x.co" });
+  assert.deepEqual(ok.data?.invitees, ["a@x.co", "b@x.co"]);
+  assert.equal(ok.data?.durationMin, 45);
+  assert.equal(new Date(ok.data!.scheduledFor).getHours(), 10); // stays the local time picked
+  assert.equal(check(scheduleForm, { title: "", date: "2020-01-01", time: "10:00", durationMin: "30", guests: "" }).errors?.time, "Pick a time in the future");
+  assert.equal(check(scheduleForm, { title: "", date, time: "10:00", durationMin: "30", guests: "a@x.co nope" }).errors?.guests, "One of the guest emails isn't valid");
+  assert.equal(check(scheduleForm, { title: "", date: "", time: "10:00", durationMin: "30", guests: "" }).errors?.date, "Pick a date");
+});

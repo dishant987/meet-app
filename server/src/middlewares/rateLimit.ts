@@ -29,6 +29,9 @@ const base = (o: Partial<Options>) =>
     ...o,
   });
 
+/** Meetings that email invites: 10 per hour per person (stops the app being used to send spam). */
+export const inviteLimiter = base({ limit: 10, windowMs: 60 * 60_000, skip: (req) => !req.body?.invitees?.length });
+
 /** Per-route limit: `max` requests per window (default 1 minute). */
 export const limit = (max: number, windowMs = 60_000) => base({ limit: max, windowMs });
 

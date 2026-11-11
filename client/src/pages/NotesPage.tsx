@@ -8,6 +8,7 @@ import {
   CircleHelp,
   Clock,
   Copy,
+  Download,
   FileDown,
   FileText,
   Gavel,
@@ -27,7 +28,9 @@ import { UserMenu } from "@/components/UserMenu";
 import { Avatar } from "@/components/call/Avatar";
 import { ApiError, errorMessage, meetingsApi, type NotesContent, type NotesResponse, type TranscriptRow } from "@/lib/api";
 import { accessHeaders, getHostKey } from "@/lib/meetingAccess";
-import { downloadWord, toMarkdown, type NotesDoc } from "@/lib/notesExport";
+import { downloadTranscriptText, downloadTranscriptWord, downloadWord, toMarkdown, type NotesDoc, type TranscriptMeta } from "@/lib/notesExport";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { useAuth } from "@/lib/auth";
 import { NotesEditor } from "@/components/notes/NotesEditor";
 import { Recordings } from "@/components/notes/Recordings";
 
@@ -143,7 +146,7 @@ function NotesView({ n }: { n: NotesContent }) {
   );
 }
 
-function Transcript({ roomCode, headers }: { roomCode: string; headers: Record<string, string> }) {
+function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Record<string, string>; meta: TranscriptMeta }) {
   const [rows, setRows] = useState<TranscriptRow[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -157,7 +160,22 @@ function Transcript({ roomCode, headers }: { roomCode: string; headers: Record<s
   if (error) return <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't load the transcript">{error}</StateCard>;
   if (!rows) return <Loader2 className="mx-auto mt-10 size-6 animate-spin text-muted-foreground" />;
   if (rows.length === 0) return <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="No transcript" />;
+  const dl = "flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none";
   return (
+    <>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
+      <p className="text-sm text-muted-foreground">
+        {rows.length} lines · {new Set(rows.map((r) => r.speakerName)).size} speakers
+      </p>
+      <div className="flex gap-2">
+        <button type="button" className={dl} onClick={() => downloadTranscriptText(meta, rows)}>
+          <Download className="size-4" aria-hidden /> Text
+        </button>
+        <button type="button" className={dl} onClick={() => downloadTranscriptWord(meta, rows).catch(() => toast.error("Couldn't create the Word file."))}>
+          <FileText className="size-4" aria-hidden /> Word
+        </button>
+      </div>
+    </div>
     <ol className="space-y-1 rounded-3xl border border-border bg-card p-3 sm:p-4">
       {rows.map((r, i) => {
         const sameSpeaker = rows[i - 1]?.speakerName === r.speakerName;
@@ -176,11 +194,13 @@ function Transcript({ roomCode, headers }: { roomCode: string; headers: Record<s
         );
       })}
     </ol>
+    </>
   );
 }
 
 export function NotesPage() {
   const { roomCode = "" } = useParams();
+  const { user } = useAuth();
   const [data, setData] = useState<NotesResponse | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const [tab, setTab] = useState<"notes" | "transcript">("notes");
@@ -316,10 +336,16 @@ export function NotesPage() {
           <>
             {/* heading */}
             <div className="mb-6 space-y-3">
-              <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase print:hidden">
-                <span className="size-1.5 rounded-full bg-brand" aria-hidden /> Meeting notes
-                {notes?.edited && <span className="rounded-md bg-muted px-1.5 py-0.5 normal-case tracking-normal">Edited</span>}
-              </p>
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
+                <Breadcrumbs
+                  items={
+                    user
+                      ? [{ label: "Home", to: "/dashboard" }, { label: "Meetings", to: "/meetings" }, { label: data.meeting.title }]
+                      : [{ label: "Home", to: "/" }, { label: "Meeting notes" }]
+                  }
+                />
+                {notes?.edited && <span className="mb-3 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Edited</span>}
+              </div>
               <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
                 {(notes?.status === "READY" && notes.title) || data.meeting.title}
               </h1>
@@ -389,7 +415,7 @@ export function NotesPage() {
               </div>
             )}
 
-            {data.meeting.status === "ENDED" && !editing && tab === "notes" && <Recordings roomCode={roomCode} headers={headers} />}
+            {data.meeting.status === "ENDED" && !editing && tab === "notes" && <Recordings roomCode={roomCode} headers={headers} isHost={data.isHost} />}
 
             {/* body */}
             {!notes && data.meeting.status !== "ENDED" ? (
@@ -442,7 +468,11 @@ export function NotesPage() {
                 </p>
               </>
             ) : (
-              <Transcript roomCode={roomCode} headers={headers} />
+              <Transcript
+                roomCode={roomCode}
+                headers={headers}
+                meta={{ meetingTitle: data.meeting.title, dateLine: dateLine(data.meeting), attendees: data.attendees }}
+              />
             )}
           </>
         )}

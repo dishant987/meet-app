@@ -1,7 +1,7 @@
 import { Router } from "express";
 import * as meeting from "../controllers/meeting.controller.js";
 import { validate } from "../middlewares/validate.js";
-import { limit } from "../middlewares/rateLimit.js";
+import { inviteLimiter, limit } from "../middlewares/rateLimit.js";
 import { requireUser } from "../middlewares/auth.js";
 import {
   createMeetingBody,
@@ -10,6 +10,7 @@ import {
   idParams,
   joinRequestBody,
   joinTokenBody,
+  myMeetingsQuery,
   settingsBody,
   recordingParams,
   roomCodeParams,
@@ -20,8 +21,10 @@ import { notesContent } from "../services/notes.service.js";
 
 export const meetingRoutes = Router();
 
-meetingRoutes.post("/", limit(20), validate({ body: createMeetingBody }), meeting.create);
-meetingRoutes.get("/mine", requireUser, meeting.mine); // before "/:roomCode" so "mine" isn't read as a code
+meetingRoutes.post("/", limit(20), validate({ body: createMeetingBody }), inviteLimiter, meeting.create);
+// before "/:roomCode" so "mine" / "stats" aren't read as codes
+meetingRoutes.get("/mine", requireUser, limit(120), validate({ query: myMeetingsQuery }), meeting.mine);
+meetingRoutes.get("/stats", requireUser, limit(60), meeting.stats);
 meetingRoutes.get("/:roomCode", validate({ params: roomCodeParams }), meeting.getByCode);
 meetingRoutes.post(
   "/:roomCode/token",

@@ -84,11 +84,33 @@ export type NotesResponse = { meeting: Meeting; isHost: boolean; attendees: stri
 export type TranscriptRow = { id: string; speakerName: string; text: string; spokenAt: string };
 export type MyMeeting = Meeting & {
   isHost: boolean;
+  scheduledFor: string | null;
+  durationMin: number | null;
+  invitedCount: number;
   lineCount: number;
   attendees: string[];
   notes: { status: Notes["status"]; title: string; summary: string } | null;
 };
 export type RecordingInfo = { id: string; mimeType: string; sizeBytes: number; durationSec: number; createdAt: string; playUrl: string; downloadUrl: string };
+/** Starting a meeting now, or scheduling one (with emailed calendar invites). */
+export type NewMeeting = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
+export type MeetingsQuery = {
+  q: string;
+  status: "all" | "live" | "upcoming" | "ended";
+  role: "all" | "hosted" | "joined" | "invited";
+  sort: "newest" | "oldest" | "soonest";
+  page: number;
+  pageSize: number;
+};
+export type MeetingsPage = {
+  items: MyMeeting[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  counts: { all: number; live: number; upcoming: number; ended: number };
+};
+export type MyStats = { meetings: number; minutes: number; notesReady: number; peopleMet: number; live: MyMeeting[]; upcoming: MyMeeting[] };
 export type JoinData = { waiting: false; token: string; livekitUrl: string; participantId: string; meeting: Meeting; isHost: boolean };
 /** "Ask to join" is on: wait with this ticket until the host lets you in. */
 export type JoinWaiting = { waiting: true; requestId: string; ticket: string; meeting: Meeting };
@@ -97,8 +119,8 @@ export type HostState = { waitingRoom: boolean; locked: boolean; waiting: Waitin
 const hostHeaders = (hostKey?: string): Record<string, string> => (hostKey ? { "x-host-key": hostKey } : {});
 
 export const meetingsApi = {
-  create: (title?: string) =>
-    api.post<{ data: Meeting & { hostKey: string } }>("/meetings", { title }).then((r) => r.data.data),
+  create: (body: NewMeeting = {}) =>
+    api.post<{ data: Meeting & { hostKey: string; invited: number } }>("/meetings", body).then((r) => r.data.data),
   get: (roomCode: string) => api.get<{ data: Meeting }>(`/meetings/${roomCode}`).then((r) => r.data.data),
   join: (roomCode: string, name: string, hostKey?: string) =>
     api.post<{ data: JoinData | JoinWaiting }>(`/meetings/${roomCode}/token`, { name, hostKey }).then((r) => r.data.data),
@@ -124,7 +146,9 @@ export const meetingsApi = {
   regenerateNotes: (roomCode: string, hostKey?: string) => api.post(`/meetings/${roomCode}/notes/regenerate`, { hostKey }),
   updateNotes: (roomCode: string, hostKey: string | undefined, notes: NotesContent) =>
     api.patch<{ data: Notes }>(`/meetings/${roomCode}/notes`, { hostKey, notes }).then((r) => r.data.data),
-  mine: () => api.get<{ data: MyMeeting[] }>("/meetings/mine").then((r) => r.data.data),
+  mine: (query: Partial<MeetingsQuery> = {}, signal?: AbortSignal) =>
+    api.get<{ data: MeetingsPage }>("/meetings/mine", { params: query, signal }).then((r) => r.data.data),
+  stats: () => api.get<{ data: MyStats }>("/meetings/stats").then((r) => r.data.data),
   recordings: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: RecordingInfo[] }>(`/meetings/${roomCode}/recordings`, { headers }).then((r) => r.data.data),
   startRecording: (roomCode: string, hostKey: string | undefined, mimeType: string, durationSec: number) =>

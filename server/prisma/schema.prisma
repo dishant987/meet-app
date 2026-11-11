@@ -29,6 +29,10 @@ model Meeting {
   // Host controls: "Ask to join" (people wait until the host lets them in) and lock (nobody new can join)
   waitingRoom  Boolean       @default(false)
   locked       Boolean       @default(false)
+  // Scheduled meetings: start time (UTC) and planned length; invites go to these emails
+  scheduledFor DateTime?
+  durationMin  Int?
+  invites      Invite[]
   participants Participant[]
   transcript   Transcript[]
   notes        Notes?
@@ -155,4 +159,16 @@ enum ParticipantStatus {
   WAITING
   DENIED
   REMOVED
+}
+
+/// Someone invited by email to a scheduled meeting (gets a calendar invite).
+model Invite {
+  id        String   @id @default(cuid())
+  meetingId String
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([meetingId, email])
+  @@index([email])
 }

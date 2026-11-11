@@ -93,12 +93,12 @@ test("signed-in host & member: host without key, notes from any device, My meeti
   assert.equal(notes.body.data.isHost, false);
   assert.equal((await other("GET", `/meetings/${roomCode}/notes`)).status, 403);
 
-  const hostList = (await host("GET", "/meetings/mine")).body.data;
-  const memberList = (await member("GET", "/meetings/mine")).body.data;
+  const hostList = (await host("GET", "/meetings/mine")).body.data.items;
+  const memberList = (await member("GET", "/meetings/mine")).body.data.items;
   assert.equal(hostList[0].roomCode, roomCode);
   assert.equal(hostList[0].isHost, true);
   assert.equal(memberList[0].roomCode, roomCode);
   assert.equal(memberList[0].isHost, false);
-  assert.equal((await other("GET", "/meetings/mine")).body.data.length, 0);
+  assert.equal((await other("GET", "/meetings/mine")).body.data.total, 0);
   assert.equal((await browser()("GET", "/meetings/mine")).status, 401);
 });

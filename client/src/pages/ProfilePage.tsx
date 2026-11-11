@@ -5,6 +5,7 @@ import { Avatar } from "@/components/call/Avatar";
 import { useAuth, type User } from "@/lib/auth";
 import { ApiError, api, assetUrl, errorMessage, fieldErrors } from "@/lib/api";
 import { squarePhoto } from "@/lib/image";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { changePasswordForm, check, profileNameForm } from "@/lib/validation";
 
 const field =
@@ -232,6 +233,7 @@ export function ProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8 sm:px-8">
+      <Breadcrumbs items={[{ label: "Home", to: "/dashboard" }, { label: "Profile" }]} />
         <div className="mb-2">
           <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
           <p className="text-muted-foreground">How you appear in meetings, and how you sign in.</p>

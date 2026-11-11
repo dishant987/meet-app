@@ -47,10 +47,59 @@ export async function downloadWord(n: NotesDoc) {
   if (n.keyPoints.length) children.push(heading("Key points"), ...bullets(n.keyPoints));
   if (n.openQuestions.length) children.push(heading("Open questions"), ...bullets(n.openQuestions));
 
-  const blob = await Packer.toBlob(new Document({ sections: [{ children }] }));
+  saveFile(await Packer.toBlob(new Document({ sections: [{ children }] })), `${fileName(n.title || n.meetingTitle, "meeting-notes")}.docx`);
+}
+
+const fileName = (title: string, fallback: string) => title.replace(/[^\w\- ]+/g, "").trim() || fallback;
+
+/** Saves a file made in the browser (no server round trip). */
+function saveFile(blob: Blob, name: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${(n.title || n.meetingTitle).replace(/[^\w\- ]+/g, "").trim() || "meeting-notes"}.docx`;
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+export type TranscriptLineForExport = { speakerName: string; text: string; spokenAt: string };
+export type TranscriptMeta = { meetingTitle: string; dateLine: string; attendees: string[] };
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+
+/** Whole transcript as plain text: "10:01:05 AM  Ravi: …", one line per sentence. */
+export function transcriptText(meta: TranscriptMeta, rows: TranscriptLineForExport[]) {
+  return [
+    `${meta.meetingTitle} — transcript`,
+    meta.dateLine,
+    `Attendees: ${meta.attendees.join(", ")}`,
+    "",
+    ...rows.map((r) => `[${clock(r.spokenAt)}] ${r.speakerName}: ${r.text}`),
+    "",
+  ].join("\n");
+}
+
+export function downloadTranscriptText(meta: TranscriptMeta, rows: TranscriptLineForExport[]) {
+  saveFile(new Blob([transcriptText(meta, rows)], { type: "text/plain;charset=utf-8" }), `${fileName(meta.meetingTitle, "meeting")} transcript.txt`);
+}
+
+export async function downloadTranscriptWord(meta: TranscriptMeta, rows: TranscriptLineForExport[]) {
+  const { Document, Packer, Paragraph, HeadingLevel, TextRun } = await import("docx");
+  const children = [
+    new Paragraph({ text: `${meta.meetingTitle} — transcript`, heading: HeadingLevel.TITLE }),
+    new Paragraph({ children: [new TextRun({ text: meta.dateLine, color: "666666" })] }),
+    new Paragraph({ children: [new TextRun({ text: `Attendees: ${meta.attendees.join(", ")}`, color: "666666" })], spacing: { after: 240 } }),
+    ...rows.map(
+      (r, i) =>
+        new Paragraph({
+          spacing: { before: rows[i - 1]?.speakerName === r.speakerName ? 0 : 160 },
+          children: [
+            ...(rows[i - 1]?.speakerName === r.speakerName
+              ? []
+              : [new TextRun({ text: `${r.speakerName}  `, bold: true }), new TextRun({ text: clock(r.spokenAt), color: "888888", break: 0 }), new TextRun({ text: "", break: 1 })]),
+            new TextRun(r.text),
+          ],
+        }),
+    ),
+  ];
+  saveFile(await Packer.toBlob(new Document({ sections: [{ children }] })), `${fileName(meta.meetingTitle, "meeting")} transcript.docx`);
 }
