@@ -250,12 +250,7 @@ for (const p of past) {
   count++;
 }
 
-// live right now (open it to rejoin)
-const live = await prisma.meeting.create({
-  data: { title: "Design jam (live)", roomCode: code(), hostKey: key(), hostId: me.id, status: "LIVE", startedAt: new Date(Date.now() - 20 * 60_000), createdAt: new Date(Date.now() - 25 * 60_000) },
-});
-await prisma.participant.create({ data: { meetingId: live.id, name: NAME, userId: me.id, isHost: true } });
-count++;
+// (no fake "live" meeting: an empty room is closed automatically when the list loads)
 
 // scheduled by me, with invites
 const upcoming: [string, Date, number, string[]][] = [

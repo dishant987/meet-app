@@ -232,7 +232,7 @@ export function ProfilePage() {
   const { user, setUser } = useAuth();
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8 sm:px-8">
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-8 sm:px-6 lg:px-10">
       <Breadcrumbs items={[{ label: "Home", to: "/dashboard" }, { label: "Profile" }]} />
         <div className="mb-2">
           <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>

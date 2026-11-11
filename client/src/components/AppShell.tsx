@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { PageLoading } from "@/components/PageLoading";
 import { Link, Navigate, NavLink, Outlet, useLocation } from "react-router";
-import { Loader2, Menu, X } from "lucide-react";
+import { Loader2, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { HouseIcon, type HouseIconHandle } from "@animateicons/react/lucide/house-icon";
 import { CalendarClockIcon } from "@animateicons/react/lucide/calendar-clock-icon";
 import { UserRoundIcon } from "@animateicons/react/lucide/user-round-icon";
@@ -20,17 +20,29 @@ const NAV = [
   { to: "/profile", label: "Profile", Icon: UserRoundIcon },
 ];
 
-/** One sidebar link; hovering anywhere on the row plays its icon. */
-function NavItem({ to, label, Icon, onNavigate }: (typeof NAV)[number] & { onNavigate?: () => void }) {
+const COLLAPSED_KEY = "meetapp-sidebar-collapsed";
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** One sidebar link; hovering anywhere on the row plays its icon. Collapsed: icon only, name on hover. */
+function NavItem({ to, label, Icon, onNavigate, collapsed }: (typeof NAV)[number] & { onNavigate?: () => void; collapsed?: boolean }) {
   const { ref, hover } = useIconHover<HouseIconHandle>();
   return (
     <NavLink
       to={to}
       onClick={onNavigate}
       {...hover}
+      title={collapsed ? label : undefined}
+      aria-label={collapsed ? label : undefined}
       className={({ isActive }) =>
         cn(
           "flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
+          collapsed && "justify-center px-0",
           isActive
             ? "relative bg-sidebar-accent font-medium text-sidebar-accent-foreground before:absolute before:inset-y-2.5 before:-left-3 before:w-1 before:rounded-r-full before:bg-brand"
             : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
@@ -38,47 +50,61 @@ function NavItem({ to, label, Icon, onNavigate }: (typeof NAV)[number] & { onNav
       }
     >
       <Icon ref={ref} size={18} className="flex shrink-0" />
-      {label}
+      {!collapsed && label}
     </NavLink>
   );
 }
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+const iconBtn =
+  "flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none";
+
+function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const { busy, start } = useStartMeeting();
   const plus = useIconHover<PlusIconHandle>();
+  const toggle = onToggle && (
+    <button type="button" onClick={onToggle} className={iconBtn} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+      {collapsed ? <PanelLeftOpen className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}
+    </button>
+  );
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
-      <Link
-        to="/dashboard"
-        onClick={onNavigate}
-        aria-label="MeetApp dashboard"
-        className="self-start rounded-xl px-1.5 py-1 focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
-      >
-        <Logo />
-      </Link>
+    <div className={cn("flex h-full flex-col gap-4 p-3", collapsed && "items-stretch px-2")}>
+      <div className={cn("flex items-center gap-1", collapsed ? "flex-col" : "justify-between")}>
+        <Link
+          to="/dashboard"
+          onClick={onNavigate}
+          aria-label="MeetApp dashboard"
+          className="rounded-xl px-1.5 py-1 focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
+        >
+          <Logo compact={collapsed} />
+        </Link>
+        {toggle}
+      </div>
 
       <button
         type="button"
         onClick={start}
         disabled={!!busy}
         {...plus.hover}
+        aria-label={collapsed ? "New meeting" : undefined}
+        title={collapsed ? "New meeting" : undefined}
         className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-brand font-semibold text-ink-950 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar focus-visible:outline-none active:scale-[0.98] disabled:opacity-60"
       >
-        {busy === "start" ? <Loader2 className="size-4 animate-spin" /> : <PlusIcon ref={plus.ref} size={16} className="flex" />} New meeting
+        {busy === "start" ? <Loader2 className="size-4 animate-spin" /> : <PlusIcon ref={plus.ref} size={16} className="flex" />}
+        {!collapsed && "New meeting"}
       </button>
 
       <nav aria-label="Main" className="flex flex-col gap-0.5">
         {NAV.map((item) => (
-          <NavItem key={item.to} {...item} onNavigate={onNavigate} />
+          <NavItem key={item.to} {...item} onNavigate={onNavigate} collapsed={collapsed} />
         ))}
       </nav>
 
-      <div className="mt-auto space-y-2 border-t border-sidebar-border pt-3">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs text-muted-foreground">Theme</span>
+      <div className={cn("mt-auto space-y-2 border-t border-sidebar-border pt-3", collapsed && "flex flex-col items-center")}>
+        <div className={cn("flex items-center justify-between px-1", collapsed && "px-0")}>
+          {!collapsed && <span className="text-xs text-muted-foreground">Theme</span>}
           <ThemeToggle />
         </div>
-        <AccountMenu variant="sidebar" />
+        <AccountMenu variant={collapsed ? "avatar" : "sidebar"} />
       </div>
     </div>
   );
@@ -89,6 +115,16 @@ export function AppShell() {
   const { user, loading } = useAuth();
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(COLLAPSED_KEY, c ? "0" : "1");
+      } catch {
+        /* private mode */
+      }
+      return !c;
+    });
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -101,8 +137,13 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:block">
-        <Sidebar />
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-dvh shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:block",
+          collapsed ? "w-[4.5rem]" : "w-64",
+        )}
+      >
+        <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
 
       {/* phones */}

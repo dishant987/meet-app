@@ -113,6 +113,7 @@ test("host mutes and removes a guest; can't target a host; others can't do it", 
   livekitCalls.length = 0;
   assert.equal((await host("POST", `/meetings/${roomCode}/participants/${g.participantId}/mute`, {})).status, 200);
   assert.ok(livekitCalls.includes("GetParticipant"));
+  assert.ok(livekitCalls.includes("SendData")); // the guest is told the host muted them
 
   assert.equal((await host("POST", `/meetings/${roomCode}/participants/${g.participantId}/remove`, {})).status, 200);
   assert.ok(livekitCalls.includes("RemoveParticipant"));

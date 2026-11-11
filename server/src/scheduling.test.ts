@@ -143,3 +143,18 @@ test("my meetings: pages, search, status filter, counts, invited role, soonest s
   assert.equal(stats.upcoming[0].title, "Hiring chat"); // scheduled ones, soonest first
   assert.ok(stats.upcoming.every((m: any) => m.scheduledFor));
 });
+
+test("meetings everyone left are closed when the list loads (rooms checked with LiveKit)", async () => {
+  const host = await signedIn("Leaver");
+  const { roomCode } = (await host("POST", "/meetings", { title: "Abandoned" })).body.data;
+  await host("POST", `/meetings/${roomCode}/token`, { name: "Leaver" }); // -> LIVE
+  const fresh = (await host("POST", "/meetings", { title: "Just started" })).body.data.roomCode;
+  await host("POST", `/meetings/${fresh}/token`, { name: "Leaver" });
+  // the first one started 10 minutes ago; its room is empty (fake LiveKit says nobody is there)
+  await prisma.meeting.update({ where: { roomCode }, data: { startedAt: new Date(Date.now() - 10 * 60_000) } });
+  const stats = (await host("GET", "/meetings/stats")).body.data;
+  assert.deepEqual(stats.live.map((m: any) => m.roomCode), [fresh]); // a just-started one is left alone
+  const closed = await prisma.meeting.findUniqueOrThrow({ where: { roomCode }, include: { notes: true } });
+  assert.equal(closed.status, "ENDED");
+  assert.ok(closed.notes); // notes started like a normal end
+});

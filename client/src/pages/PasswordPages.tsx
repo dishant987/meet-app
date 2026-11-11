@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Loader2, MailCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { api, errorMessage, fieldErrors } from "@/lib/api";
 import { useAuth, type User } from "@/lib/auth";
 import { check, forgotForm, resetForm } from "@/lib/validation";
@@ -15,9 +16,12 @@ const primary =
 function Shell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background bg-[radial-gradient(ellipse_at_top_right,oklch(0.9_0.19_125/0.1),transparent_45%)] px-4 py-6 sm:px-8">
-      <Link to="/" aria-label="MeetApp home" className="self-start rounded-xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none">
-        <Logo />
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link to="/" aria-label="MeetApp home" className="rounded-xl focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none">
+          <Logo />
+        </Link>
+        <ThemeToggle />
+      </div>
       <main className="m-auto w-full max-w-sm space-y-6 py-10">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>

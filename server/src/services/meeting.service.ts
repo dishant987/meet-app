@@ -333,8 +333,23 @@ const toItem = (userId: string) => ({ hostId, _count, participants, notes, ...m 
   notes: notes && { status: notes.status, title: notes.title, summary: notes.summary.slice(0, 220) },
 });
 
+/**
+ * Meetings everyone walked away from (nobody pressed "End") stay "live" forever. Before listing, ask LiveKit
+ * whether anyone is still in each "live" room; empty ones (open 2+ minutes) are ended like the host would,
+ * which also writes their notes. If LiveKit can't be reached, nothing is ended (isRoomEmpty says "not empty").
+ */
+async function closeAbandoned(mine: Prisma.MeetingWhereInput) {
+  const live = await prisma.meeting.findMany({
+    where: { AND: [mine, { status: "LIVE", startedAt: { lt: new Date(Date.now() - 2 * 60_000) } }] },
+    select: { id: true, roomCode: true, status: true },
+    take: 10,
+  });
+  await Promise.all(live.map(async (m) => (await isRoomEmpty(m.roomCode)) && endAndStartNotes(m).catch(() => {})));
+}
+
 export async function listMyMeetings(userId: string, query: MyMeetingsQuery) {
   const mine = await whereMine(userId, query.role);
+  await closeAbandoned(await whereMine(userId));
   const like = { contains: query.q, mode: "insensitive" as const };
   const search: Prisma.MeetingWhereInput = query.q
     ? { OR: [{ title: like }, { notes: { is: { OR: [{ title: like }, { summary: like }] } } }, { participants: { some: { name: like } } }] }
@@ -370,6 +385,7 @@ export async function listMyMeetings(userId: string, query: MyMeetingsQuery) {
 /** Dashboard numbers for the last 30 days, plus what's live and coming up. */
 export async function myStats(userId: string) {
   const mine = await whereMine(userId);
+  await closeAbandoned(mine);
   const since = new Date(Date.now() - 30 * 86_400_000);
   const recent: Prisma.MeetingWhereInput = { AND: [mine, { createdAt: { gte: since } }] };
   const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });

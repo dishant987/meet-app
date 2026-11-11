@@ -1,4 +1,4 @@
-import { AccessToken, RoomServiceClient, TrackSource } from "livekit-server-sdk";
+import { AccessToken, DataPacket_Kind, RoomServiceClient, TrackSource } from "livekit-server-sdk";
 import { env } from "../config/env.js";
 
 export async function createJoinToken(roomCode: string, identity: string, name: string, attributes?: Record<string, string>) {
@@ -42,6 +42,13 @@ export async function muteMicrophone(roomCode: string, identity: string) {
   const person = await client.getParticipant(roomCode, identity).catch((err) => (gone(err) ? null : Promise.reject(err)));
   const mics = (person?.tracks ?? []).filter((t) => t.source === TrackSource.MICROPHONE && !t.muted);
   await Promise.all(mics.map((t) => client.mutePublishedTrack(roomCode, identity, t.sid, true)));
+  // tell only that person why their mic went off (best effort: the mute itself already happened)
+  await client
+    .sendData(roomCode, new TextEncoder().encode(JSON.stringify({ type: "muted-by-host" })), DataPacket_Kind.RELIABLE, {
+      destinationIdentities: [identity],
+      topic: "host",
+    })
+    .catch(() => {});
 }
 
 /** Host removes someone from the call. Already gone is fine. */

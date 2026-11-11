@@ -125,7 +125,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 sm:px-8">
+    <div className="mx-auto w-full max-w-[1400px] space-y-8 px-4 py-8 sm:px-6 lg:px-10">
       <div>
         <p className="text-sm text-muted-foreground">
           {new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
@@ -236,25 +236,35 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* live now */}
+      {/* live now: one card, however many */}
       {live.length > 0 && (
-        <section aria-label="Live now" className="space-y-2">
-          {live.map((m) => (
-            <ArrowLink
-              key={m.id}
-              to={`/m/${m.roomCode}`}
-              className="flex items-center gap-3 rounded-2xl border border-brand/40 bg-brand/10 px-4 py-3 text-sm transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
-            >
-              <span className="relative flex size-2.5">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-75" />
-                <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-semibold">{m.title}</span> is live now
-              </span>
-              <span className="font-medium">Rejoin</span>
-            </ArrowLink>
-          ))}
+        <section aria-labelledby="live-title" className="overflow-hidden rounded-2xl border border-brand/40 bg-brand/10">
+          <h2 id="live-title" className="flex items-center gap-2 px-4 pt-3 pb-1 text-sm font-semibold">
+            <span className="relative flex size-2.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-75" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
+            </span>
+            Live now · {live.length}
+          </h2>
+          <ul className="divide-y divide-brand/15">
+            {live.slice(0, 3).map((m) => (
+              <li key={m.id}>
+                <ArrowLink
+                  to={`/m/${m.roomCode}`}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-brand/10 focus-visible:bg-brand/10 focus-visible:outline-none"
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium">{m.title}</span>
+                  <span className="hidden text-xs text-muted-foreground sm:inline">{when(m)}</span>
+                  <span className="font-medium">Rejoin</span>
+                </ArrowLink>
+              </li>
+            ))}
+          </ul>
+          {live.length > 3 && (
+            <Link to="/meetings?status=live" className="block px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+              {live.length - 3} more live
+            </Link>
+          )}
         </section>
       )}
 

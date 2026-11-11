@@ -74,7 +74,7 @@ function MeetingCard({ m }: { m: MyMeeting }) {
     <li>
       <Link
         to={link.to}
-        className="group block rounded-3xl border border-border bg-card p-5 transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
+        className="group flex h-full flex-col rounded-3xl border border-border bg-card p-5 transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -87,7 +87,7 @@ function MeetingCard({ m }: { m: MyMeeting }) {
           <span className={cn("shrink-0 rounded-lg px-2 py-1 text-xs font-semibold", chip.cls)}>{chip.text}</span>
         </div>
         {m.notes?.summary && <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{m.notes.summary}</p>}
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3">
           <div className="flex -space-x-2" aria-label={`${m.attendees.length} people`}>
             {m.attendees.slice(0, 6).map((a) => (
               <span key={a} title={a} className="rounded-xl ring-2 ring-card">
@@ -153,7 +153,7 @@ export function MyMeetingsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8">
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-10">
       <Breadcrumbs items={[{ label: "Home", to: "/dashboard" }, { label: "Meetings" }]} />
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -277,7 +277,7 @@ export function MyMeetingsPage() {
           </button>
         </div>
       ) : (
-        <ul className={cn("space-y-3 transition-opacity", loading && "opacity-60")}>
+        <ul className={cn("grid gap-3 transition-opacity xl:grid-cols-2", loading && "opacity-60")}>
           {data.items.map((m) => (
             <MeetingCard key={m.id} m={m} />
           ))}

@@ -108,9 +108,8 @@ export function AccountMenu({ variant = "avatar" }: { variant?: "avatar" | "side
           <p className="truncate text-sm font-semibold">{user.name}</p>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
         </div>
-        {MENU.map((item) => (
-          <MenuLink key={item.to} {...item} onClick={() => setOpen(false)} />
-        ))}
+        {/* the sidebar already lists these pages; the header menu needs them */}
+        {variant !== "sidebar" && MENU.map((item) => <MenuLink key={item.to} {...item} onClick={() => setOpen(false)} />)}
         <SignOutItem
           onClick={() => {
             setOpen(false);

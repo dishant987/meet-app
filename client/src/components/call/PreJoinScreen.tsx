@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useBackgroundEffect } from "@/lib/background";
+import { BackgroundPicker } from "./BackgroundPicker";
 import { check, displayNameForm } from "@/lib/validation";
 import { MediaDeviceFailure, Track, type LocalAudioTrack, type LocalVideoTrack } from "livekit-client";
 import { useMediaDevices, usePreviewTracks, type LocalUserChoices } from "@livekit/components-react";
@@ -113,6 +115,7 @@ export function PreJoinScreen({ meeting, joining, onJoin }: Props) {
   const videoTrack = tracks?.find((t) => t.kind === Track.Kind.Video) as LocalVideoTrack | undefined;
   const audioTrack = tracks?.find((t) => t.kind === Track.Kind.Audio) as LocalAudioTrack | undefined;
 
+  useBackgroundEffect(videoTrack); // preview shows the blur before joining
   const videoEl = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (!videoTrack || !videoEl.current) return;
@@ -181,6 +184,7 @@ export function PreJoinScreen({ meeting, joining, onJoin }: Props) {
               >
                 {choices.videoEnabled ? <Video /> : <VideoOff />}
               </DockButton>
+              {choices.videoEnabled && <BackgroundPicker className="backdrop-blur" />}
             </div>
           </div>
         </section>

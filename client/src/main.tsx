@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, Outlet, RouterProvider } from "react-router";
+import { createBrowserRouter, matchPath, Outlet, RouterProvider, useLocation } from "react-router";
 import "./index.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Toaster } from "@/components/ui/sonner";
@@ -94,12 +94,25 @@ const load = (el: ReactNode, dark = false) => (
   <Suspense fallback={<PageLoading dark={dark} />}>{el}</Suspense>
 );
 
-/** Wraps every page: the idle sign-out watches the whole app (it skips meetings itself). */
+/** Wraps every page: idle sign-out (skips meetings itself) and pop-up messages. */
 function Root() {
+  // the meeting screens are always dark, so their pop-ups are too (whatever the site theme is)
+  const inMeeting = !!matchPath("/m/:roomCode", useLocation().pathname);
   return (
     <>
       <IdleLogout />
       <Outlet />
+      {/* Bottom-left like Google Meet; offset keeps it above the call's control bar.
+          In meetings the wrapper switches the colours to the dark set (it adds no box of its own). */}
+      <div className={inMeeting ? "dark contents" : "contents"}>
+        <Toaster
+          richColors
+          position="bottom-left"
+          offset={{ bottom: 96, left: 16 }}
+          mobileOffset={{ bottom: 84, left: 8, right: 8 }}
+          {...(inMeeting && { theme: "dark" as const })}
+        />
+      </div>
     </>
   );
 }
@@ -142,13 +155,6 @@ createRoot(document.getElementById("root")!).render(
       <AuthProvider>
         <RouterProvider router={router} />
       </AuthProvider>
-      {/* Bottom-left like Google Meet; offset keeps it above the call's control bar. */}
-      <Toaster
-        richColors
-        position="bottom-left"
-        offset={{ bottom: 96, left: 16 }}
-        mobileOffset={{ bottom: 84, left: 8, right: 8 }}
-      />
     </ErrorBoundary>
   </StrictMode>,
 );

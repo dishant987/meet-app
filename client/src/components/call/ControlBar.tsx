@@ -12,6 +12,7 @@ import { canRecord, startRecording, stopRecording, useRecorderState } from "@/li
 import { errorMessage, meetingsApi } from "@/lib/api";
 import { REACTION_EMOJIS } from "./Reactions";
 import { DockButton } from "./DockButton";
+import { BackgroundPicker } from "./BackgroundPicker";
 
 export type Panel = "people" | "chat" | null;
 
@@ -135,6 +136,7 @@ export function ControlBar({ title, roomCode, panel, setPanel, unreadChat, parti
         >
           {cam.enabled ? <Video /> : <VideoOff />}
         </DockButton>
+        <BackgroundPicker />
 
         <DockButton label={captionsOn ? "Turn off captions" : "Turn on captions"} tone={captionsOn ? "on" : "default"} onClick={onToggleCaptions}>
           <Captions />

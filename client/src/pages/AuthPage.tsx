@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { Captions, Loader2, NotebookPen, Video } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth";
 import { errorMessage, fieldErrors as formFieldErrors } from "@/lib/api";
 import { GoogleButton, googleEnabled } from "@/components/GoogleButton";
@@ -128,9 +129,14 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
 
       {/* form */}
       <main className="flex flex-col px-4 py-6 sm:px-8">
-        <Link to="/" className="lg:hidden">
-          <Logo />
-        </Link>
+        <div className="flex items-center">
+          <Link to="/" className="lg:hidden">
+            <Logo />
+          </Link>
+          <span className="ml-auto">
+            <ThemeToggle />
+          </span>
+        </div>
         <div className="m-auto w-full max-w-sm space-y-6 py-10">
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight">{signup ? "Create your account" : "Welcome back"}</h1>

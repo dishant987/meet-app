@@ -31,8 +31,20 @@ let ctx: { roomCode: string; hostKey?: string; title: string; onStop?: () => voi
 export const canRecord = () =>
   typeof MediaRecorder !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
 
+/**
+ * Cheapest format first, so recording doesn't slow the call down:
+ * MP4/H.264 is usually encoded by the graphics chip (almost no CPU) and plays everywhere (iPhone too);
+ * VP8 is light in software; VP9 is the heaviest, only as a last resort.
+ */
 function pickMimeType() {
-  for (const t of ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"])
+  for (const t of [
+    "video/mp4;codecs=avc1.42E01F,mp4a.40.2",
+    "video/mp4;codecs=avc1,mp4a",
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+    "video/mp4",
+  ])
     if (MediaRecorder.isTypeSupported(t)) return t;
   return "";
 }
@@ -51,7 +63,9 @@ export async function startRecording(opts: {
 }) {
   if (state.phase === "recording" || state.phase === "uploading") return;
   const display = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: 30 },
+    // 720p at 24 fps (normal for meeting recordings): the tab at full screen size (often 4K on scaled screens) made both
+    // the call and the recording stutter, because the computer was also encoding the camera for the call.
+    video: { frameRate: { ideal: 24, max: 24 }, width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 } },
     audio: true,
     // Chrome/Edge: offer "this tab" first and keep the picker simple
     preferCurrentTab: true,
@@ -65,6 +79,12 @@ export async function startRecording(opts: {
   if (display.getAudioTracks().length) audioCtx.createMediaStreamSource(new MediaStream(display.getAudioTracks())).connect(out);
   if (opts.mic && opts.mic.readyState === "live") audioCtx.createMediaStreamSource(new MediaStream([opts.mic])).connect(out);
 
+  const [screen] = display.getVideoTracks();
+  if (screen) {
+    screen.contentHint = "motion"; // keep it smooth (people moving) rather than pin-sharp
+    // some browsers ignore the size we asked for; scaling down here keeps the encoder's work small
+    await screen.applyConstraints({ width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 24 } }).catch(() => {});
+  }
   const stream = new MediaStream([...display.getVideoTracks(), ...out.stream.getAudioTracks()]);
   const mimeType = pickMimeType();
   recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });

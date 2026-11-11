@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ConnectionState, RoomEvent, Track, type Participant } from "livekit-client";
+import { ConnectionState, RoomEvent, Track, type LocalVideoTrack, type Participant } from "livekit-client";
 import {
   RoomAudioRenderer,
   StartAudio,
   isTrackReference,
   useChat,
   useConnectionState,
+  useLocalParticipant,
   useParticipants,
   useRoomContext,
   useTracks,
@@ -23,6 +24,7 @@ import { useCaptions } from "./useCaptions";
 import { CaptionsOverlay, LanguagePicker } from "./CaptionsOverlay";
 import { stopRecording } from "@/lib/recorder";
 import { useHostControls, type HostControls } from "./useHostControls";
+import { useBackgroundEffect } from "@/lib/background";
 
 const keyOf = (t: TrackReferenceOrPlaceholder) => `${t.participant.identity}:${t.source}`;
 
@@ -45,9 +47,27 @@ function useRoomNotifications(chatOpen: boolean, messages: { id: string; message
     const attrs = (changed: Record<string, string>, p: Participant) => {
       if (!p.isLocal && changed.hand === "up") toast(`✋ ${displayName(p)} raised a hand`);
     };
-    room.on(RoomEvent.ParticipantConnected, joined).on(RoomEvent.ParticipantDisconnected, left).on(RoomEvent.ParticipantAttributesChanged, attrs);
+    // private notes from the server ("host" topic): only the server can send these, not other people
+    const fromServer = (payload: Uint8Array, from?: Participant, _kind?: unknown, topic?: string) => {
+      if (topic !== "host" || from) return;
+      try {
+        if (JSON.parse(new TextDecoder().decode(payload)).type === "muted-by-host")
+          toast("The host muted your microphone", { description: "Unmute when you want to speak.", duration: 8000 });
+      } catch {
+        /* not ours */
+      }
+    };
+    room
+      .on(RoomEvent.ParticipantConnected, joined)
+      .on(RoomEvent.ParticipantDisconnected, left)
+      .on(RoomEvent.ParticipantAttributesChanged, attrs)
+      .on(RoomEvent.DataReceived, fromServer);
     return () => {
-      room.off(RoomEvent.ParticipantConnected, joined).off(RoomEvent.ParticipantDisconnected, left).off(RoomEvent.ParticipantAttributesChanged, attrs);
+      room
+        .off(RoomEvent.ParticipantConnected, joined)
+        .off(RoomEvent.ParticipantDisconnected, left)
+        .off(RoomEvent.ParticipantAttributesChanged, attrs)
+        .off(RoomEvent.DataReceived, fromServer);
     };
   }, [room]);
 
@@ -78,6 +98,20 @@ function Call({ roomCode, title, participantId, isHost, host }: CallProps & { ho
   // Leaving the call (or the meeting ending) stops a running recording so it uploads.
   useEffect(() => () => stopRecording(), []);
   const connection = useConnectionState();
+  // background blur (chosen on the join screen or in the call) follows the camera, also after switching it off/on
+  const { cameraTrack } = useLocalParticipant();
+  // Blur started while nobody receives our camera reached later joiners as a black tile (LiveKit + processor).
+  // So in a call it starts once someone is receiving the camera; alone, nobody sees the video anyway.
+  const room = useRoomContext();
+  const [watched, setWatched] = useState(false);
+  useEffect(() => {
+    const onSubscribed = (pub: { source: Track.Source }) => pub.source === Track.Source.Camera && setWatched(true);
+    room.on(RoomEvent.LocalTrackSubscribed, onSubscribed);
+    return () => {
+      room.off(RoomEvent.LocalTrackSubscribed, onSubscribed);
+    };
+  }, [room]);
+  useBackgroundEffect(watched ? (cameraTrack?.track as LocalVideoTrack | undefined) : undefined);
   const participants = useParticipants();
   const tracks = useTracks(
     [
