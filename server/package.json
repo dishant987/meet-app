@@ -12,7 +12,8 @@
     "postinstall": "prisma generate",
     "build": "esbuild src/app.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/app.js --log-level=warning",
     "db:deploy:prod": "node --env-file=.env scripts/migrate-prod.mjs",
-    "seed:demo": "tsx --env-file=.env scripts/seed-demo.ts"
+    "seed:demo": "tsx --env-file=.env scripts/seed-demo.ts",
+    "stripe:setup": "tsx --env-file=.env scripts/stripe-setup.ts"
   },
   "keywords": [],
   "type": "module",
@@ -35,6 +36,7 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "stripe": "^23.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

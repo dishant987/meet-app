@@ -143,6 +143,19 @@ export function notesEmail(meetingTitle: string, dateLine: string, n: NotesForEm
   };
 }
 
+/** Someone added this email to a team; they accept on their Teams page (after signing up if needed). */
+export function teamInviteEmail(inviter: string, team: string, link: string): Omit<Email, "to"> {
+  return {
+    subject: `${inviter} invited you to the ${team} team on MeetApp`,
+    html: layout(
+      `Join ${team} on MeetApp`,
+      `<p><b>${esc(inviter)}</b> invited you to the <b>${esc(team)}</b> team. Team members see the team's meetings, notes and recordings.</p>${button(link, "See the invite")}<p style="color:#5b5d68;font-size:14px">No account yet? Sign up with this email address and the invite will be waiting.</p>`,
+      `${inviter} sent this through MeetApp.`,
+    ),
+    text: `${inviter} invited you to the ${team} team on MeetApp.\n\nSee the invite: ${link}\n\nNo account yet? Sign up with this email address and the invite will be waiting.`,
+  };
+}
+
 /** "Starts in 10 minutes" reminder, with the join button. */
 export function reminderEmail(title: string, minutes: number, link: string): Omit<Email, "to"> {
   const soon = minutes <= 1 ? "now" : `in ${minutes} minutes`;

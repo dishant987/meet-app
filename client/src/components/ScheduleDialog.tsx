@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { CalendarCheck, CalendarPlus, Loader2, Repeat } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorMessage, fieldErrors, meetingsApi, type Answer } from "@/lib/api";
+import { errorMessage, fieldErrors, meetingsApi, teamsApi, type Answer, type TeamSummary } from "@/lib/api";
 import { getHostKey, saveHostKey } from "@/lib/meetingAccess";
 import { check, scheduleForm, type FormErrors } from "@/lib/validation";
 
@@ -23,7 +23,7 @@ function nextSlot() {
   d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0);
   return { date: localDate(d), time: localTime(d) };
 }
-const blank = () => ({ title: "", ...nextSlot(), durationMin: "30", guests: "", repeat: "", repeatCount: "4" });
+const blank = () => ({ title: "", ...nextSlot(), durationMin: "30", guests: "", repeat: "", repeatCount: "4", teamId: "" });
 const REPLY: Record<Answer, { label: string; cls: string }> = {
   YES: { label: "Going", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
   MAYBE: { label: "Maybe", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" },
@@ -55,6 +55,13 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
   const [form, setForm] = useState(blank);
   const [series, setSeries] = useState<{ recurrence: string; left: number } | null>(null);
   const [replies, setReplies] = useState<{ email: string; response: Answer | null }[]>([]);
+  const [teams, setTeams] = useState<TeamSummary[]>([]);
+
+  // schedule: my teams, for "Who's it for"
+  useEffect(() => {
+    if (!open || editRoomCode) return;
+    teamsApi.mine().then((r) => setTeams(r.teams), () => setTeams([]));
+  }, [open, editRoomCode]);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }));
     setErrors(({ [k]: _gone, form: _f, ...rest }) => rest);
@@ -78,6 +85,7 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
           guests: s.invitees.join(", "),
           repeat: "",
           repeatCount: "4",
+          teamId: "",
         });
         setSeries(s.recurrence ? { recurrence: s.recurrence, left: s.seriesLeft } : null);
         setReplies(s.replies);
@@ -97,7 +105,7 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
     setBusy(true);
     try {
       if (editRoomCode) {
-        const { repeat: _r, repeatCount: _c, ...change } = result.data; // the repeat pattern isn't edited here
+        const { repeat: _r, repeatCount: _c, teamId: _t, ...change } = result.data; // repeat and team aren't edited here
         const r = await meetingsApi.updateSchedule(editRoomCode, { ...change, timeZone: timeZone() }, getHostKey(editRoomCode));
         const parts = [
           r.updated && `updates sent to ${people(r.updated)}`,
@@ -219,6 +227,20 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
                     </select>
                   </div>
                 )}
+              </div>
+            )}
+            {!editing && teams.length > 0 && (
+              <div className="space-y-1.5">
+                <label htmlFor="s-team" className="text-sm font-medium">Who's it for</label>
+                <select id="s-team" className={field} value={form.teamId} onChange={set("teamId")}>
+                  <option value="">Just me</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      Team: {t.name}
+                    </option>
+                  ))}
+                </select>
+                {form.teamId && <p className="text-xs text-muted-foreground">Everyone in the team sees it, its notes and recordings. Team settings apply.</p>}
               </div>
             )}
             <div className="space-y-1.5">

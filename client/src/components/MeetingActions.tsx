@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { CalendarX, Link2, Loader2, MoreHorizontal, Pencil } from "lucide-react";
+import { CalendarPlus, CalendarX, Link2, Loader2, MoreHorizontal, Pencil } from "lucide-react";
 import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -23,7 +23,29 @@ export const canManage = (m: MyMeeting) => m.isHost && m.status === "SCHEDULED" 
 const item =
   "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none";
 
-/** "⋯" menu on an upcoming meeting: Edit, Copy link, Cancel meeting. */
+/** One-off "add this meeting" links for Google Calendar and Outlook (no sign-in to MeetApp needed there). */
+function calendarLinks(m: MyMeeting) {
+  const start = new Date(m.scheduledFor!);
+  const end = new Date(start.getTime() + (m.durationMin ?? 30) * 60_000);
+  const link = `${location.origin}/m/${m.roomCode}`;
+  const g = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const google = new URLSearchParams({ action: "TEMPLATE", text: m.title, dates: `${g(start)}/${g(end)}`, details: `Join: ${link}`, location: link });
+  const outlook = new URLSearchParams({
+    path: "/calendar/action/compose",
+    rru: "addevent",
+    subject: m.title,
+    startdt: start.toISOString(),
+    enddt: end.toISOString(),
+    body: `Join: ${link}`,
+    location: link,
+  });
+  return {
+    google: `https://calendar.google.com/calendar/render?${google}`,
+    outlook: `https://outlook.live.com/calendar/0/deeplink/compose?${outlook}`,
+  };
+}
+
+/** "⋯" menu on an upcoming meeting: Edit, Copy link, add to a calendar, Cancel meeting. */
 export function MeetingActions({ m, onChanged, className }: { m: MyMeeting; onChanged: () => void; className?: string }) {
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -78,6 +100,16 @@ export function MeetingActions({ m, onChanged, className }: { m: MyMeeting; onCh
           <button type="button" className={item} onClick={copyLink}>
             <Link2 className="size-4" aria-hidden /> Copy link
           </button>
+          {m.scheduledFor && (
+            <>
+              <a className={item} href={calendarLinks(m).google} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
+                <CalendarPlus className="size-4" aria-hidden /> Add to Google Calendar
+              </a>
+              <a className={item} href={calendarLinks(m).outlook} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
+                <CalendarPlus className="size-4" aria-hidden /> Add to Outlook
+              </a>
+            </>
+          )}
           <button type="button" className={cn(item, "text-destructive")} onClick={() => (setMenu(false), setConfirm(true))}>
             <CalendarX className="size-4" aria-hidden /> Cancel meeting
           </button>

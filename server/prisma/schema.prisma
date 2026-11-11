@@ -42,6 +42,10 @@ model Meeting {
   // Recurring meetings: every occurrence is its own meeting (own link, notes) sharing one seriesId
   seriesId     String?
   recurrence   String?       // "DAILY" | "WEEKLY"
+  // Team meeting: every team member can see it and its notes; the team's settings apply
+  teamId       String?
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  questions    AiQuestion[]
   participants Participant[]
   chat         ChatMessage[]
   transcript   Transcript[]
@@ -49,6 +53,7 @@ model Meeting {
   recordings   Recording[]
 
   @@index([seriesId])
+  @@index([teamId])
   @@index([status, scheduledFor])
 }
 
@@ -130,10 +135,23 @@ model User {
   sessionVersion Int         @default(0)
   // Set once the person clicks the link in the confirmation email (or signs in with Google, or resets the password).
   emailVerifiedAt DateTime?
+  // "FREE" | "PRO" (limits in services/plan.service.ts; no payments yet, set with scripts/set-plan.ts)
+  plan         String        @default("FREE")
+  // Stripe (test mode for now): customer + the Pro subscription, kept in sync by webhook / on the Billing page
+  stripeCustomerId   String?   @unique
+  subscriptionId     String?
+  subscriptionStatus String?   // Stripe status: active, trialing, past_due, canceled, ...
+  planInterval       String?   // "month" | "year"
+  planRenewsAt       DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+  // Secret for the personal calendar feed (/api/calendar/<token>.ics); new token = old link stops working
+  calendarToken String?      @unique
   createdAt    DateTime      @default(now())
   hosted       Meeting[]     @relation("HostedMeetings")
   joined       Participant[]
   resets       PasswordReset[]
+  teams        TeamMember[]
+  questions    AiQuestion[]
 }
 
 // "Forgot password" links. Only a SHA-256 hash of the token is stored; links expire and work once.
@@ -204,4 +222,60 @@ model ChatMessage {
   sentAt        DateTime    @default(now())
 
   @@index([meetingId, sentAt])
+}
+
+// "Ask AI" about one meeting: kept so the asker sees their questions again (and for the daily limit)
+model AiQuestion {
+  id        String   @id @default(cuid())
+  meetingId String
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question  String
+  answer    String
+  provider  String
+  createdAt DateTime @default(now())
+
+  @@index([meetingId, userId])
+  @@index([userId, createdAt])
+}
+
+// A team shares meetings and notes; owners/admins change its settings and members
+model Team {
+  id             String       @id @default(cuid())
+  name           String
+  createdAt      DateTime     @default(now())
+  // Admin settings: new team meetings start with "Ask to join"; only these email domains may join
+  // team meetings (signed in, confirmed); who can record ("HOST" = the meeting's host, "OFF" = nobody)
+  askToJoin      Boolean      @default(false)
+  allowedDomains String[]     @default([])
+  recording      String       @default("HOST")
+  members        TeamMember[]
+  invites        TeamInvite[]
+  meetings       Meeting[]
+}
+
+model TeamMember {
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     String   @default("MEMBER") // "OWNER" | "ADMIN" | "MEMBER"
+  joinedAt DateTime @default(now())
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+// Waiting for someone with this email to accept (shown on their Teams page)
+model TeamInvite {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  email     String
+  role      String   @default("MEMBER")
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, email])
+  @@index([email])
 }

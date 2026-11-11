@@ -110,6 +110,7 @@ export const scheduleForm = z
     // "" = doesn't repeat
     repeat: z.enum(["", "DAILY", "WEEKLY"]).default(""),
     repeatCount: z.coerce.number().int().min(2, "Repeat at least 2 times").max(12, "Repeat at most 12 times").default(4),
+    teamId: z.string().default(""), // "" = just me
   })
   .transform((v, ctx) => {
     const start = new Date(`${v.date}T${v.time}`); // browser's local time
@@ -123,6 +124,7 @@ export const scheduleForm = z
       durationMin: v.durationMin,
       invitees: v.guests,
       ...(v.repeat ? { repeat: v.repeat, repeatCount: v.repeatCount } : {}),
+      ...(v.teamId ? { teamId: v.teamId } : {}),
     };
   });
 

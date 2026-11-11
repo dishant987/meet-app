@@ -96,6 +96,7 @@ export type MyMeeting = Meeting & {
   seriesId: string | null;
   /** Guests' answers (host only). */
   replies: { yes: number; maybe: number; no: number } | null;
+  team: { id: string; name: string } | null;
 };
 export type Answer = "YES" | "MAYBE" | "NO";
 export type InviteReply = { title: string; hostName: string | null; scheduledFor: string | null; durationMin: number | null; recurrence: string | null; answer: Answer | null; link: string };
@@ -109,11 +110,12 @@ export type NewMeeting = {
   timeZone?: string;
   repeat?: "DAILY" | "WEEKLY";
   repeatCount?: number;
+  teamId?: string;
 };
 export type MeetingsQuery = {
   q: string;
   status: "all" | "live" | "upcoming" | "ended";
-  role: "all" | "hosted" | "joined" | "invited";
+  role: "all" | "hosted" | "joined" | "invited" | "team";
   sort: "newest" | "oldest" | "soonest";
   page: number;
   pageSize: number;
@@ -236,3 +238,106 @@ export async function saveTranscript(roomCode: string, participantId: string, li
   });
   if (!res.ok) throw new ApiError("TRANSCRIPT_SAVE_FAILED", "Couldn't save captions", res.status);
 }
+
+// ---------- search ----------
+export type SearchHit = { kind: "title" | "notes" | "transcript" | "chat"; id?: string; who?: string; at?: string; snippet: string };
+export type SearchResult = {
+  roomCode: string;
+  title: string;
+  status: Meeting["status"];
+  startedAt: string | null;
+  scheduledFor: string | null;
+  createdAt: string;
+  teamName: string | null;
+  hits: SearchHit[];
+};
+export const searchApi = {
+  search: (q: string, signal?: AbortSignal) =>
+    api.get<{ data: { meetings: SearchResult[] } }>("/meetings/search", { params: { q }, signal }).then((r) => r.data.data.meetings),
+};
+
+// ---------- ask AI ----------
+export type AiAnswer = { id: string; question: string; answer: string; createdAt: string };
+export const askApi = {
+  history: (roomCode: string) => api.get<{ data: AiAnswer[] }>(`/meetings/${roomCode}/ask`).then((r) => r.data.data),
+  // the time zone lets the answer quote times the way the page shows them
+  ask: (roomCode: string, question: string) =>
+    api
+      .post<{ data: AiAnswer }>(`/meetings/${roomCode}/ask`, { question, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+      .then((r) => r.data.data),
+};
+
+// ---------- teams ----------
+export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
+export type TeamSummary = { id: string; name: string; role: TeamRole; members: number; meetings: number };
+export type TeamInviteForMe = { id: string; role: TeamRole; teamId: string; teamName: string; members: number };
+export type TeamSettings = { askToJoin: boolean; allowedDomains: string[]; recording: "HOST" | "OFF" };
+export type TeamDetail = {
+  id: string;
+  name: string;
+  myRole: TeamRole;
+  settings: TeamSettings;
+  maxPeople: number;
+  members: { id: string; name: string; email: string; avatarUrl: string | null; role: TeamRole; joinedAt: string }[];
+  invites: { id: string; email: string; role: TeamRole; createdAt: string }[];
+};
+export const teamsApi = {
+  mine: () => api.get<{ data: { teams: TeamSummary[]; invites: TeamInviteForMe[] } }>("/teams").then((r) => r.data.data),
+  create: (name: string) => api.post<{ data: { id: string; name: string } }>("/teams", { name }).then((r) => r.data.data),
+  get: (id: string) => api.get<{ data: TeamDetail }>(`/teams/${id}`).then((r) => r.data.data),
+  update: (id: string, change: Partial<TeamSettings> & { name?: string }) =>
+    api.patch<{ data: TeamSettings & { name: string } }>(`/teams/${id}`, change).then((r) => r.data.data),
+  remove: (id: string) => api.delete(`/teams/${id}`),
+  invite: (id: string, emails: string[], role: "ADMIN" | "MEMBER") =>
+    api.post<{ data: { invited: number; skipped: number } }>(`/teams/${id}/invites`, { emails, role }).then((r) => r.data.data),
+  cancelInvite: (id: string, inviteId: string) => api.delete(`/teams/${id}/invites/${inviteId}`),
+  answer: (inviteId: string, accept: boolean) =>
+    api.post<{ data: { joined: boolean; teamId: string } }>(`/teams/invites/${inviteId}`, { accept }).then((r) => r.data.data),
+  setRole: (id: string, userId: string, role: "ADMIN" | "MEMBER") => api.patch(`/teams/${id}/members/${userId}`, { role }),
+  removeMember: (id: string, userId: string) => api.delete(`/teams/${id}/members/${userId}`),
+};
+
+// ---------- plan, billing, calendar ----------
+export type PlanLimits = { name: string; people: number; recordingsPerMonth: number | null; aiPerDay: number; teamsOwned: number; teamMembers: number };
+export type Invoice = {
+  id: string;
+  number: string | null;
+  date: string;
+  amount: number;
+  currency: string;
+  status: string | null;
+  description: string;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+};
+export type PlanId = "FREE" | "PRO" | "BUSINESS";
+export type PaidPlan = Exclude<PlanId, "FREE">;
+export type Money = { amount: number; currency: string };
+export type PublicPlan = PlanLimits & { id: PlanId; prices: { month: Money; year: Money } | null };
+export type BillingOverview = {
+  plan: PlanId;
+  limits: PlanLimits;
+  used: { recordingsThisMonth: number; aiQuestionsToday: number; teamsOwned: number };
+  billing: null | {
+    testMode: boolean;
+    status: string | null;
+    interval: "month" | "year" | null;
+    renewsAt: string | null;
+    cancelAtPeriodEnd: boolean;
+    canManage: boolean;
+    prices: Partial<Record<PaidPlan, { month: Money; year: Money }>>;
+    invoices: Invoice[];
+  };
+};
+export const billingApi = {
+  overview: () => api.get<{ data: BillingOverview }>("/billing").then((r) => r.data.data),
+  checkout: (plan: PaidPlan, interval: "month" | "year") =>
+    api.post<{ data: { url: string } }>("/billing/checkout", { plan, interval }).then((r) => r.data.data.url),
+  /** Public: every plan's limits and prices (landing page). */
+  plans: () => api.get<{ data: PublicPlan[] }>("/billing/plans").then((r) => r.data.data),
+  portal: () => api.post<{ data: { url: string } }>("/billing/portal").then((r) => r.data.data.url),
+};
+export const calendarApi = {
+  link: () => api.get<{ data: { url: string } }>("/me/calendar").then((r) => r.data.data.url),
+  reset: () => api.post<{ data: { url: string } }>("/me/calendar/reset").then((r) => r.data.data.url),
+};

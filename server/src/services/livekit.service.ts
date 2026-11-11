@@ -34,6 +34,15 @@ export async function isRoomEmpty(roomCode: string) {
   }
 }
 
+/** How many people are in the call now (0 if the room isn't open). Unknown (LiveKit unreachable) = 0: never blocks a join. */
+export async function roomSize(roomCode: string) {
+  try {
+    return (await rooms().listParticipants(roomCode)).length;
+  } catch {
+    return 0;
+  }
+}
+
 const gone = (err: unknown) => /not.?found|does not exist/i.test(String((err as Error)?.message));
 
 /** Host mutes someone's microphone (they can turn it back on themselves). */

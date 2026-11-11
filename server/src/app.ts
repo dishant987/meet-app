@@ -9,11 +9,13 @@ import { logger } from "./utils/logger.js";
 import { health } from "./controllers/health.controller.js";
 import { meetingRoutes } from "./routes/meeting.routes.js";
 import { authRoutes } from "./routes/auth.routes.js";
-import { meRoutes, userRoutes } from "./routes/profile.routes.js";
+import { calendarRoutes, meRoutes, userRoutes } from "./routes/profile.routes.js";
 import { loadUser } from "./middlewares/auth.js";
 import { apiLimiter } from "./middlewares/rateLimit.js";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
 import * as cron from "./controllers/cron.controller.js";
+import { teamRoutes } from "./routes/team.routes.js";
+import { billingRoutes, billingWebhook } from "./routes/billing.routes.js";
 
 export const app = express();
 
@@ -36,6 +38,7 @@ app.use(
 );
 app.use(helmet());
 app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
+app.use("/api/billing/webhook", billingWebhook); // raw body, before the JSON parser
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 app.use(loadUser);
@@ -46,6 +49,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/calendar", calendarRoutes);
+app.use("/api/billing", billingRoutes);
 app.all("/api/cron/reminders", cron.reminders);
 
 app.use(notFound);

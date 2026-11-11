@@ -38,12 +38,19 @@ const schema = z.object({
   B2_REGION: z.string().trim().optional(),
   // Reminder emails: the scheduler (cron-job.org / Vercel cron) calls /api/cron/reminders with "Authorization: Bearer <this>".
   CRON_SECRET: z.string().trim().min(16).optional(),
+  // Payments (Stripe; test keys sk_test_... for now). Prices come from `npm run stripe:setup`.
+  STRIPE_SECRET_KEY: z.string().trim().startsWith("sk_", "must be a Stripe secret key (sk_test_...)").optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().trim().startsWith("whsec_").optional(),
+  STRIPE_PRICE_MONTHLY: z.string().trim().startsWith("price_").optional(),
+  STRIPE_PRICE_YEARLY: z.string().trim().startsWith("price_").optional(),
+  STRIPE_PRICE_BUSINESS_MONTHLY: z.string().trim().startsWith("price_").optional(),
+  STRIPE_PRICE_BUSINESS_YEARLY: z.string().trim().startsWith("price_").optional(),
 });
 
-// Trim stray spaces / Windows line endings (easy to paste into a hosting dashboard by accident);
-// an empty value like "UPSTASH_REDIS_REST_URL=" means "not set".
+// Trim stray spaces / Windows line endings and surrounding quotes (easy to paste into a hosting dashboard
+// by accident, e.g. SMTP_PASS="abcd" copied from .env); an empty value like "UPSTASH_REDIS_REST_URL=" means "not set".
 const cleaned = Object.entries(process.env)
-  .map(([k, v]) => [k, v?.trim()] as const)
+  .map(([k, v]) => [k, v?.trim().replace(/^(["'])(.*)\1$/s, "$2").trim()] as const)
   .filter(([, v]) => v !== undefined && v !== "");
 const parsed = schema.safeParse(Object.fromEntries(cleaned));
 if (!parsed.success) {

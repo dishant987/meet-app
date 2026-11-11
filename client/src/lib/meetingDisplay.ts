@@ -42,7 +42,8 @@ export function openLink(m: MyMeeting) {
 }
 
 /** Who you were in it. */
-export const roleLabel = (m: MyMeeting) => (m.isHost ? "You host" : m.attendees.length ? "You joined" : "You're invited");
+export const roleLabel = (m: MyMeeting) =>
+  `${m.isHost ? "You host" : m.attendees.length ? "You joined" : m.team ? "Team" : "You're invited"}${m.team ? ` · ${m.team.name}` : ""}`;
 
 /** "Repeats weekly" for a series meeting. */
 export const repeatLabel = (m: MyMeeting) => (m.recurrence ? `Repeats ${m.recurrence === "DAILY" ? "daily" : "weekly"}` : "");

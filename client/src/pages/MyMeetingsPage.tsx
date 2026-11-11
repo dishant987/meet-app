@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { MeetingActions, canManage } from "@/components/MeetingActions";
 import { Link, useSearchParams } from "react-router";
-import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Search, SearchX, Video, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Search, SearchX, UserRound, Video, X } from "lucide-react";
 import { PlusIcon, type PlusIconHandle } from "@animateicons/react/lucide/plus-icon";
 import { cn } from "cn";
 import { Avatar } from "@/components/call/Avatar";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { SelectMenu } from "@/components/ui/select-menu";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { errorMessage, meetingsApi, type MeetingsPage, type MeetingsQuery, type MyMeeting } from "@/lib/api";
 import { guestsLabel, openLink, repeatLabel, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
@@ -24,6 +25,7 @@ const ROLES = [
   ["hosted", "I hosted"],
   ["joined", "I joined"],
   ["invited", "I'm invited"],
+  ["team", "Team meetings"],
 ] as const;
 const SORTS = [
   ["newest", "Newest first"],
@@ -106,8 +108,6 @@ function MeetingCard({ m, onChanged }: { m: MyMeeting; onChanged: () => void }) 
   );
 }
 
-const select =
-  "h-11 rounded-2xl border border-border bg-card px-3 text-sm focus-visible:border-brand focus-visible:outline-none";
 
 export function MyMeetingsPage() {
   const { busy, start } = useStartMeeting();
@@ -188,7 +188,7 @@ export function MyMeetingsPage() {
 
       {/* search + filters */}
       <div className="mb-3 flex flex-col gap-2 sm:flex-row">
-        <label className="flex h-11 flex-1 items-center gap-2 rounded-2xl border border-border bg-card px-3 focus-within:border-brand">
+        <label className="flex h-11 items-center gap-2 rounded-2xl border border-border bg-card px-3 focus-within:border-brand sm:flex-1">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="sr-only">Search meetings</span>
           <input
@@ -206,16 +206,22 @@ export function MyMeetingsPage() {
           )}
         </label>
         <div className="grid grid-cols-2 gap-2 sm:flex">
-          <select aria-label="Role" className={select} value={query.role} onChange={(e) => update({ role: e.target.value as MeetingsQuery["role"] })}>
-            {ROLES.map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-          <select aria-label="Sort" className={select} value={query.sort} onChange={(e) => update({ sort: e.target.value as MeetingsQuery["sort"] })}>
-            {SORTS.map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
+          <SelectMenu
+            label="Role"
+            icon={UserRound}
+            className="sm:w-48"
+            value={query.role}
+            onChange={(role) => update({ role })}
+            options={ROLES.map(([value, label]) => ({ value, label }))}
+          />
+          <SelectMenu
+            label="Sort"
+            icon={ArrowUpDown}
+            className="sm:w-48"
+            value={query.sort}
+            onChange={(sort) => update({ sort })}
+            options={SORTS.map(([value, label]) => ({ value, label }))}
+          />
         </div>
       </div>
 

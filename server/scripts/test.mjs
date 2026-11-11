@@ -16,7 +16,7 @@ if (/neon\.tech/.test(url) || url === process.env.DATABASE_URL || url === proces
 const env = { ...process.env, DATABASE_URL: url, DIRECT_DATABASE_URL: "" };
 // Set to EMPTY (not deleted): the server loads .env on start and would refill deleted ones, but never
 // overrides a variable that already exists. The server treats empty as "not set".
-for (const k of ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "PROD_DATABASE_URL", "PROD_DIRECT_DATABASE_URL", "SMTP_HOST", "SMTP_USER", "SMTP_PASS"])
+for (const k of ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN", "PROD_DATABASE_URL", "PROD_DIRECT_DATABASE_URL", "SMTP_HOST", "SMTP_USER", "SMTP_PASS", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_MONTHLY", "STRIPE_PRICE_YEARLY", "STRIPE_PRICE_BUSINESS_MONTHLY", "STRIPE_PRICE_BUSINESS_YEARLY", "CRON_SECRET"])
   env[k] = "";
 
 const run = (cmd, args) => spawnSync(cmd, args, { stdio: "inherit", env, shell: process.platform === "win32" }).status ?? 1;

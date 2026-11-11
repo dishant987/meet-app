@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Sparkles } from "lucide-react";
+import { Aperture, Check } from "lucide-react";
 import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BACKGROUND_OPTIONS, setBackground, useBackgroundMode, useBackgroundSupported } from "@/lib/background";
@@ -15,7 +15,7 @@ export function BackgroundPicker({ className }: { className?: string }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <DockButton label="Background effects" tone={mode !== "off" ? "on" : open ? "on" : "default"} className={className}>
-          <Sparkles />
+          <Aperture />
         </DockButton>
       </PopoverTrigger>
       <PopoverContent side="top" sideOffset={12} className="dark w-64 rounded-2xl border-white/10 bg-ink-900/95 p-1.5 text-white backdrop-blur-xl" role="radiogroup" aria-label="Background">

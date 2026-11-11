@@ -16,7 +16,6 @@ import {
   Plus,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   Tablet,
   Video,
 } from "lucide-react";
@@ -26,6 +25,9 @@ import { LandingNav } from "@/components/LandingNav";
 import { useAuth } from "@/lib/auth";
 import { check, joinCodeForm } from "@/lib/validation";
 import { useStartMeeting } from "@/lib/useStartMeeting";
+import { PeriodSwitch, PlanCards, planButton, yearlySaving, type Period } from "@/components/PlanCards";
+import { Skeleton } from "@/components/ui/skeleton";
+import { billingApi, type PublicPlan } from "@/lib/api";
 
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const delay = (ms: number) => ({ ["--reveal-delay" as string]: `${ms}ms` });
@@ -34,8 +36,10 @@ const delay = (ms: number) => ({ ["--reveal-delay" as string]: `${ms}ms` });
 function useReveal() {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const els = root.current?.querySelectorAll<HTMLElement>(".reveal") ?? [];
-    if (!("IntersectionObserver" in window)) return els.forEach((el) => el.setAttribute("data-shown", ""));
+    const el = root.current;
+    if (!el) return;
+    const pending = () => el.querySelectorAll<HTMLElement>(".reveal:not([data-shown])");
+    if (!("IntersectionObserver" in window)) return pending().forEach((x) => x.setAttribute("data-shown", ""));
     const io = new IntersectionObserver(
       (entries) =>
         entries.forEach((e) => {
@@ -45,8 +49,14 @@ function useReveal() {
         }),
       { rootMargin: "0px 0px -8% 0px", threshold: 0.12 },
     );
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    pending().forEach((x) => io.observe(x));
+    // sections that load data later (pricing) add .reveal elements after the first paint: watch those too
+    const mo = new MutationObserver(() => pending().forEach((x) => io.observe(x)));
+    mo.observe(el, { childList: true, subtree: true });
+    return () => {
+      io.disconnect();
+      mo.disconnect();
+    };
   }, []);
   return root;
 }
@@ -135,7 +145,7 @@ function ProductPreview() {
         </div>
         {/* buttons sit left so the floating notes card (bottom right) never covers them */}
         <div className="mt-3 flex items-center justify-center gap-1.5 sm:justify-start sm:pl-1">
-          {[Mic, Video, Captions, Sparkles].map((I, i) => (
+          {[Mic, Video, Captions, NotebookPen].map((I, i) => (
             <span key={i} className="flex size-8 items-center justify-center rounded-xl bg-white/[0.07]">
               <I className="size-4" />
             </span>
@@ -184,7 +194,14 @@ const FAQ = [
     q: "Do my guests need an account or an app?",
     a: "No. Anyone with the link joins from their browser on a laptop, tablet or phone. An account is only needed to keep your meetings, notes and recordings in one place.",
   },
-  { q: "Is it free?", a: "Yes. You can start meetings, use captions and get AI notes for free." },
+  {
+    q: "Is it free?",
+    a: "Yes. The Free plan is free forever: meetings, live captions and AI notes included. Pro and Business add bigger calls, unlimited recordings and more AI. Cancel any time.",
+  },
+  {
+    q: "How does paying work?",
+    a: "Pick monthly or yearly (about 2 months free) and pay securely by card through Stripe. Prices are in Indian rupees. You can switch plans or cancel from the Billing page.",
+  },
   { q: "Who can see the notes and recording?", a: "Only people who were in the meeting. The host can edit the notes and email them again." },
   {
     q: "Which languages do captions support?",
@@ -205,6 +222,67 @@ function Section({ id, eyebrow, title, intro, children, className }: { id?: stri
         {children}
       </div>
     </section>
+  );
+}
+
+/** Pricing on the landing page: the same three plan cards as the Billing page, with a monthly / yearly switch. */
+function Pricing({ signedIn }: { signedIn: boolean }) {
+  const [plans, setPlans] = useState<PublicPlan[] | null>(null);
+  const [period, setPeriod] = useState<Period>("year");
+  useEffect(() => {
+    billingApi.plans().then(setPlans, () => setPlans([]));
+  }, []);
+
+  // paid plan: straight to checkout when signed in, else sign up first and continue to checkout after
+  const upgradeLink = (id: string) => {
+    const billing = `/billing?upgrade=${id}&period=${period}`;
+    return signedIn ? billing : `/signup?next=${encodeURIComponent(billing)}`;
+  };
+
+  return (
+    <Section
+      id="pricing"
+      eyebrow="Pricing"
+      title="Simple plans that grow with you"
+      intro="Start free. Upgrade when your meetings get bigger. Prices in Indian rupees."
+    >
+      <div className="reveal mb-10 flex justify-center">
+        {plans && plans.length > 0 && <PeriodSwitch value={period} onChange={setPeriod} saving={yearlySaving(plans)} />}
+      </div>
+      {!plans ? (
+        <div role="status" aria-label="Loading plans" className="grid gap-4 md:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-[30rem] rounded-3xl" />
+          ))}
+        </div>
+      ) : plans.length === 0 ? (
+        <p className="text-center text-muted-foreground">Plans couldn't load right now. Start free and see them on the Billing page.</p>
+      ) : (
+        <PlanCards
+          className="reveal"
+          plans={plans}
+          period={period}
+          action={(p, featured) =>
+            p.id === "FREE" ? (
+              <Link to={signedIn ? "/dashboard" : "/signup"} className={planButton(featured)}>
+                {signedIn ? "Go to dashboard" : "Start free"}
+              </Link>
+            ) : p.prices ? (
+              <Link to={upgradeLink(p.id)} className={planButton(featured)}>
+                Get {p.name}
+              </Link>
+            ) : (
+              <button type="button" disabled className={planButton(false)}>
+                Coming soon
+              </button>
+            )
+          }
+        />
+      )}
+      <p className="reveal mt-8 text-center text-sm text-muted-foreground">
+        Secure card payments by Stripe · Cancel any time from Billing · Guests never pay to join
+      </p>
+    </Section>
   );
 }
 
@@ -410,7 +488,7 @@ export function HomePage() {
               <ul className="mt-6 space-y-3 text-sm">
                 {(
                   [
-                    [Sparkles, "Written by AI from what was actually said"],
+                    [NotebookPen, "Written by AI from what was actually said"],
                     [Lock, "Only people in the meeting can open it"],
                     [Film, "The recording and full transcript sit right next to it"],
                   ] as const
@@ -451,6 +529,8 @@ export function HomePage() {
             </div>
           </div>
         </section>
+
+        <Pricing signedIn={!!user} />
 
         {/* FAQ */}
         <Section id="faq" eyebrow="FAQ" title="Questions people ask" className="bg-muted/40">
@@ -509,6 +589,7 @@ export function HomePage() {
               links={[
                 { href: "#features", label: "Features" },
                 { href: "#how", label: "How it works" },
+                { href: "#pricing", label: "Pricing" },
                 { href: "#faq", label: "FAQ" },
               ]}
             />

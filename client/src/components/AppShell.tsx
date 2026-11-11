@@ -6,6 +6,9 @@ import { Loader2, Menu, MonitorDown, PanelLeftClose, PanelLeftOpen, X } from "lu
 import { HouseIcon, type HouseIconHandle } from "@animateicons/react/lucide/house-icon";
 import { CalendarClockIcon } from "@animateicons/react/lucide/calendar-clock-icon";
 import { UserRoundIcon } from "@animateicons/react/lucide/user-round-icon";
+import { SearchIcon } from "@animateicons/react/lucide/search-icon";
+import { UsersIcon } from "@animateicons/react/lucide/users-icon";
+import { CreditCardIcon } from "@animateicons/react/lucide/credit-card-icon";
 import { PlusIcon, type PlusIconHandle } from "@animateicons/react/lucide/plus-icon";
 import { cn } from "cn";
 import { Logo } from "@/components/Logo";
@@ -19,6 +22,9 @@ import { installApp, useCanInstall } from "@/lib/install";
 const NAV = [
   { to: "/dashboard", label: "Home", Icon: HouseIcon },
   { to: "/meetings", label: "Meetings", Icon: CalendarClockIcon },
+  { to: "/search", label: "Search", Icon: SearchIcon },
+  { to: "/teams", label: "Teams", Icon: UsersIcon },
+  { to: "/billing", label: "Billing", Icon: CreditCardIcon },
   { to: "/profile", label: "Profile", Icon: UserRoundIcon },
 ];
 
@@ -51,7 +57,7 @@ function Tip({ label, show = true, children }: { label: string; show?: boolean; 
  */
 function NavItem({ to, label, Icon, onNavigate, collapsed }: (typeof NAV)[number] & { onNavigate?: () => void; collapsed?: boolean }) {
   const { ref, hover } = useIconHover<HouseIconHandle>();
-  const isActive = !!useMatch({ path: to, end: true });
+  const isActive = !!useMatch({ path: to, end: to !== "/teams" }); // a team's page keeps "Teams" marked
   return (
     <Tip label={label} show={collapsed}>
       <Link
@@ -245,7 +251,7 @@ export function AppShell() {
           </Link>
           <AccountMenu />
         </header>
-        <main className="flex-1">
+        <main className="min-w-0 flex-1">
           {/* the page area loads on its own, so the sidebar stays put while switching pages */}
           {user ? (
             <Suspense fallback={<PageSkeleton />}>

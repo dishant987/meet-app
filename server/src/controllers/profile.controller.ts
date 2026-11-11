@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import * as profile from "../services/profile.service.js";
+import * as calendarFeed from "../services/calendarFeed.service.js";
+import { AppError } from "../utils/AppError.js";
 import { createSessionToken } from "../services/auth.service.js";
 import { SESSION_COOKIE, sessionCookie } from "../middlewares/auth.js";
 
@@ -28,4 +30,20 @@ export async function avatar(req: Request<{ id: string }>, res: Response) {
     "cross-origin-resource-policy": "cross-origin", // the app runs on another origin (port/site)
   });
   res.send(bytes);
+}
+
+export async function calendar(req: Request, res: Response) {
+  res.json({ success: true, data: await calendarFeed.myFeed(req.user!.id) });
+}
+
+export async function resetCalendar(req: Request, res: Response) {
+  res.json({ success: true, data: await calendarFeed.resetFeed(req.user!.id) });
+}
+
+/** Public (the token is the secret): calendar apps fetch this every hour or so. */
+export async function calendarFeedFile(req: Request<{ file: string }>, res: Response) {
+  const token = req.params.file.replace(/\.ics$/, "");
+  if (!/^[\w-]{20,60}$/.test(token)) throw new AppError(404, "CALENDAR_NOT_FOUND", "This calendar link doesn't work any more.");
+  res.set({ "content-type": "text/calendar; charset=utf-8", "cache-control": "private, max-age=300" });
+  res.send(await calendarFeed.feedFor(token));
 }

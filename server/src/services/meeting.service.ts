@@ -4,7 +4,7 @@ import { prisma } from "../config/db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
-import { closeRoom, createJoinToken, isRoomEmpty, muteMicrophone, removeFromRoom } from "./livekit.service.js";
+import { closeRoom, createJoinToken, isRoomEmpty, muteMicrophone, removeFromRoom, roomSize } from "./livekit.service.js";
 import { emailNotes, startNotes, type NotesContent } from "./notes.service.js";
 import { downloadUrl, storedSize, uploadUrl } from "./storage.service.js";
 import { cancelEmail, inviteEmail, sendEmails } from "./email.service.js";
@@ -13,6 +13,8 @@ import { logger } from "../utils/logger.js";
 import { waitUntil } from "@vercel/functions";
 import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 import { avatarUrl } from "./auth.service.js";
+import { assertCanRecord, peopleLimit } from "./plan.service.js";
+import { isTeamMember } from "./team.service.js";
 
 const letters = (n: number) => Array.from({ length: n }, () => String.fromCharCode(97 + randomInt(26))).join("");
 const newRoomCode = () => `${letters(3)}-${letters(4)}-${letters(3)}`; // e.g. abc-defg-hij
@@ -27,6 +29,8 @@ export type NewMeeting = {
   /** Recurring: repeat daily or weekly, `repeatCount` meetings in total (each its own meeting, one calendar series). */
   repeat?: Repeat;
   repeatCount?: number;
+  /** A team meeting: all team members see it and its notes; the team's settings apply. */
+  teamId?: string;
 };
 
 // shortcut: fixed 24 h / 7 d steps in UTC (same as the calendar RRULE with a UTC start); across a daylight-saving
@@ -38,6 +42,11 @@ export async function createMeeting(input: NewMeeting, hostId?: string) {
   const scheduledFor = input.scheduledFor ? new Date(input.scheduledFor) : null;
   const count = scheduledFor && input.repeat ? (input.repeatCount ?? 4) : 1;
   const seriesId = count > 1 ? randomBytes(9).toString("base64url") : null;
+  let askToJoin = false;
+  if (input.teamId) {
+    if (!hostId || !(await isTeamMember(input.teamId, hostId))) throw new AppError(403, "NOT_IN_TEAM", "You're not in this team.");
+    askToJoin = (await prisma.team.findUniqueOrThrow({ where: { id: input.teamId }, select: { askToJoin: true } })).askToJoin;
+  }
   // 26^10 codes, so a clash is near impossible; retry a few times just in case.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -54,6 +63,8 @@ export async function createMeeting(input: NewMeeting, hostId?: string) {
               durationMin: scheduledFor ? (input.durationMin ?? 30) : null,
               seriesId,
               recurrence: seriesId ? input.repeat : null,
+              teamId: input.teamId ?? null,
+              waitingRoom: askToJoin, // team setting: new meetings start with "Ask to join"
               invites: invitees.length ? { create: invitees.map((email) => ({ email })) } : undefined,
             },
             select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true, scheduledFor: true, durationMin: true },
@@ -382,6 +393,24 @@ export async function joinMeeting(roomCode: string, name: string, userId?: strin
 
   if (!isHost) {
     if (m.locked) throw new AppError(423, "MEETING_LOCKED", "The host has locked this meeting. Ask them to unlock it.");
+    // team setting: only people signed in with these email domains (confirmed) may join
+    if (m.teamId) {
+      const team = await prisma.team.findUnique({ where: { id: m.teamId }, select: { allowedDomains: true } });
+      if (team?.allowedDomains.length) {
+        const who = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { email: true, emailVerifiedAt: true } }) : null;
+        const domain = who?.emailVerifiedAt ? who.email.split("@")[1] : undefined;
+        if (!domain || !team.allowedDomains.includes(domain))
+          throw new AppError(
+            403,
+            "DOMAIN_NOT_ALLOWED",
+            `Only people signed in with ${team.allowedDomains.map((d) => "@" + d).join(" or ")} email can join this meeting.`,
+          );
+      }
+    }
+    // plan: how many people can be in the call at once (the host's plan)
+    const max = await peopleLimit(m.hostId);
+    if ((await roomSize(roomCode)) >= max)
+      throw new AppError(403, "MEETING_FULL", `This meeting is full (${max} people on the host's plan).`);
     // shortcut: only stops signed-in people; a removed guest can come back from a new browser (host can lock or use "Ask to join")
     if (userId && (await prisma.participant.count({ where: { meetingId: m.id, userId, status: "REMOVED" } })))
       throw new AppError(403, "REMOVED_FROM_MEETING", "The host removed you from this meeting.");
@@ -502,7 +531,7 @@ function sameSecret(a: string, b: string) {
 }
 
 /** Host = has the meeting's host key. Member = joined it (has a participant id) or is the host. */
-async function authorize(roomCode: string, access: Access, need: "member" | "host") {
+export async function authorize(roomCode: string, access: Access, need: "member" | "host") {
   const meeting = await prisma.meeting.findUnique({ where: { roomCode } });
   if (!meeting) throw new AppError(404, "MEETING_NOT_FOUND", "This meeting does not exist. Check the link.");
   // Host: the creator's host key (any browser it was saved in) or the signed-in account that created it.
@@ -515,9 +544,10 @@ async function authorize(roomCode: string, access: Access, need: "member" | "hos
       ...(access.participantId ? [{ id: access.participantId }] : []),
       ...(access.userId ? [{ userId: access.userId }] : []),
     ];
-    const member = or.length
-      ? await prisma.participant.findFirst({ where: { meetingId: meeting.id, status: "ADMITTED", OR: or }, select: { id: true } })
-      : null;
+    const member =
+      (or.length
+        ? await prisma.participant.findFirst({ where: { meetingId: meeting.id, status: "ADMITTED", OR: or }, select: { id: true } })
+        : null) ?? (meeting.teamId && access.userId && (await isTeamMember(meeting.teamId, access.userId)) ? { id: "team" } : null);
     if (!member) throw new AppError(403, "NOT_IN_MEETING", "Only people who joined this meeting can see its notes");
   }
   return { meeting, isHost };
@@ -598,12 +628,22 @@ export async function getChat(roomCode: string, access: Access) {
 const ATTENDED = { in: ["ADMITTED", "REMOVED"] as ("ADMITTED" | "REMOVED")[] };
 
 /** Meetings I host, joined while signed in, or was invited to by email. */
-async function whereMine(userId: string, role: MyMeetingsQuery["role"] = "all"): Promise<Prisma.MeetingWhereInput> {
+export async function whereMine(userId: string, role: MyMeetingsQuery["role"] = "all"): Promise<Prisma.MeetingWhereInput> {
   const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
   const hosted = { hostId: userId };
   const joined = { participants: { some: { userId, status: ATTENDED } } };
   const invited = { invites: { some: { email: me.email } }, NOT: { hostId: userId } };
-  const who = role === "hosted" ? hosted : role === "joined" ? joined : role === "invited" ? invited : { OR: [hosted, joined, invited] };
+  const team = { team: { members: { some: { userId } } } };
+  const who =
+    role === "hosted"
+      ? hosted
+      : role === "joined"
+        ? joined
+        : role === "invited"
+          ? invited
+          : role === "team"
+            ? team
+            : { OR: [hosted, joined, invited, team] };
   return { AND: [who, { cancelledAt: null }] }; // cancelled meetings leave every list
 }
 
@@ -627,6 +667,7 @@ const listSelect = {
   hostId: true,
   recurrence: true,
   seriesId: true,
+  team: { select: { id: true, name: true } },
   notes: { select: { status: true, title: true, summary: true } },
   invites: { select: { response: true } },
   _count: { select: { transcript: true } },
@@ -734,6 +775,11 @@ export async function myStats(userId: string) {
 /** Host starts an upload: we create the record and hand back a 1-hour upload link. */
 export async function startRecordingUpload(roomCode: string, access: Access, info: { mimeType: string; durationSec: number }) {
   const { meeting } = await authorize(roomCode, access, "host");
+  if (meeting.teamId) {
+    const team = await prisma.team.findUnique({ where: { id: meeting.teamId }, select: { recording: true } });
+    if (team?.recording === "OFF") throw new AppError(403, "RECORDING_OFF", "Recording is turned off for this team.");
+  }
+  await assertCanRecord(meeting.hostId);
   const ext = info.mimeType.includes("mp4") ? "mp4" : "webm";
   const storageKey = `meetings/${meeting.id}/${randomBytes(12).toString("hex")}.${ext}`;
   const url = await uploadUrl(storageKey, info.mimeType); // throws STORAGE_NOT_CONFIGURED before any row is made

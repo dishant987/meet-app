@@ -14,6 +14,7 @@ export const createMeetingBody = z
     timeZone: z.string().max(60).optional(), // host's zone, only for writing the time in the email
     // recurring: daily or weekly, this many meetings in total
     repeat: z.enum(["DAILY", "WEEKLY"]).optional(),
+    teamId: z.string().min(1).max(40).optional(),
     repeatCount: z.number().int().min(2, "Repeat at least 2 times").max(12, "Repeat at most 12 times").optional(),
   })
   .refine((b) => !b.repeat || b.scheduledFor, { path: ["repeat"], message: "Pick a date and time to repeat a meeting" })
@@ -32,7 +33,7 @@ export const createMeetingBody = z
 export const myMeetingsQuery = z.object({
   q: z.string().trim().max(100).default(""),
   status: z.enum(["all", "live", "upcoming", "ended"]).default("all"),
-  role: z.enum(["all", "hosted", "joined", "invited"]).default("all"),
+  role: z.enum(["all", "hosted", "joined", "invited", "team"]).default("all"),
   sort: z.enum(["newest", "oldest", "soonest"]).default("newest"),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(10),
@@ -100,5 +101,11 @@ export const rsvpBody = z.object({
   token: z.string().min(20).max(1000),
   answer: z.enum(["YES", "MAYBE", "NO"]).optional(), // left out: just read the current answer
 });
+
+export const askBody = z.object({
+  question: z.string().trim().min(3, "Ask a full question").max(500, "Keep the question under 500 characters"),
+  timeZone: z.string().max(60).optional(), // asker's zone: times in the answer match what their page shows
+});
+export const searchQuery = z.object({ q: z.string().trim().min(2, "Type at least 2 letters").max(100) });
 
 export const seriesParams = z.object({ seriesId: z.string().regex(/^[\w-]{8,40}$/) });

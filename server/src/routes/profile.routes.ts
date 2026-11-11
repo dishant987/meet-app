@@ -17,8 +17,14 @@ meRoutes.put(
   profile.uploadAvatar,
 );
 meRoutes.delete("/avatar", limit(10), profile.removeAvatar);
+meRoutes.get("/calendar", limit(30), profile.calendar);
+meRoutes.post("/calendar/reset", limit(5), profile.resetCalendar);
 meRoutes.post("/password", limit(5, 15 * 60_000), validate({ body: passwordBody }), profile.changePassword);
 
 // /api/users/:id/avatar — public photos (shown to other people in meetings)
 export const userRoutes = Router();
+
+// /api/calendar/<token>.ics — the personal calendar feed (no sign-in: calendar apps fetch it)
+export const calendarRoutes = Router();
+calendarRoutes.get("/:file", limit(60), profile.calendarFeedFile);
 userRoutes.get("/:id/avatar", validate({ params: userIdParams }), profile.avatar);

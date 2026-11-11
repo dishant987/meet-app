@@ -102,6 +102,22 @@ const ReplyPage = page(
   () => import("@/pages/InvitePages"),
   (m) => m.ReplyPage,
 );
+const SearchPage = page(
+  () => import("@/pages/SearchPage"),
+  (m) => m.SearchPage,
+);
+const TeamsPage = page(
+  () => import("@/pages/TeamsPage"),
+  (m) => m.TeamsPage,
+);
+const TeamPage = page(
+  () => import("@/pages/TeamsPage"),
+  (m) => m.TeamPage,
+);
+const BillingPage = page(
+  () => import("@/pages/BillingPage"),
+  (m) => m.BillingPage,
+);
 const NotFoundPage = page(
   () => import("@/pages/NotFoundPage"),
   (m) => m.NotFoundPage,
@@ -157,6 +173,10 @@ const router = createBrowserRouter([
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/meetings", element: <MyMeetingsPage /> },
           { path: "/profile", element: <ProfilePage /> },
+          { path: "/search", element: <SearchPage /> },
+          { path: "/teams", element: <TeamsPage /> },
+          { path: "/teams/:teamId", element: <TeamPage /> },
+          { path: "/billing", element: <BillingPage /> },
         ],
       },
       { path: "/forgot-password", element: load(<ForgotPasswordPage />) },

@@ -84,3 +84,36 @@ export function formatWhen(start: Date, timeZone?: string) {
     return new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: "UTC" }).format(start);
   }
 }
+
+export type FeedEvent = { id: string; title: string; start: Date; minutes: number; url: string; cancelled: boolean };
+
+/** A subscribable calendar (Google / Outlook / Apple "add by URL"): the person's meetings, kept up to date by the app. */
+export function feedIcs(name: string, events: FeedEvent[], now = new Date()) {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "PRODID:-//MeetApp//Meetings feed//EN",
+    "VERSION:2.0",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsText(name)}`,
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
+  ];
+  for (const e of events) {
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${e.id}@meetapp-feed`, // not the invite UID, so it never clashes with an accepted invite
+      `DTSTAMP:${icsTime(now)}`,
+      `DTSTART:${icsTime(e.start)}`,
+      `DTEND:${icsTime(new Date(e.start.getTime() + e.minutes * 60_000))}`,
+      `SUMMARY:${icsText(e.title)}`,
+      `DESCRIPTION:${icsText(`Join: ${e.url}`)}`,
+      `LOCATION:${icsText(e.url)}`,
+      `URL:${e.url}`,
+      `STATUS:${e.cancelled ? "CANCELLED" : "CONFIRMED"}`,
+      "END:VEVENT",
+    );
+  }
+  lines.push("END:VCALENDAR");
+  return lines.map(fold).join("\r\n") + "\r\n";
+}

@@ -1,9 +1,9 @@
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { BadgeCheck, Camera, KeyRound, Loader2, Mail, Trash2 } from "lucide-react";
+import { BadgeCheck, CalendarSync, Camera, Copy, KeyRound, Loader2, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/call/Avatar";
 import { useAuth, type User } from "@/lib/auth";
-import { ApiError, api, assetUrl, errorMessage, fieldErrors } from "@/lib/api";
+import { ApiError, api, assetUrl, calendarApi, errorMessage, fieldErrors } from "@/lib/api";
 import { squarePhoto } from "@/lib/image";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { changePasswordForm, check, profileNameForm } from "@/lib/validation";
@@ -237,6 +237,83 @@ function PasswordCard({ user, onSaved }: { user: User; onSaved: (u: User) => voi
   );
 }
 
+/** Personal calendar link: Google / Outlook / Apple Calendar subscribe and keep MeetApp meetings in sync. */
+function CalendarCard() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    calendarApi.link().then(setUrl).catch((err) => toast.error(errorMessage(err)));
+  }, []);
+  const webcal = url?.replace(/^https?:/, "webcal:");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url!);
+      toast.success("Calendar link copied");
+    } catch {
+      toast(url!);
+    }
+  }
+  async function reset() {
+    setBusy(true);
+    try {
+      setUrl(await calendarApi.reset());
+      setConfirmReset(false);
+      toast.success("New link made. Calendars using the old one stop updating.");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const linkBtn = `${ghostBtn} h-10`;
+  return (
+    <Card
+      title="Calendar"
+      description="Your scheduled MeetApp meetings (hosted, invited and team) show up in your calendar and stay updated. Keep this link private."
+    >
+      {!url ? (
+        <div className="h-11 animate-pulse rounded-2xl bg-muted" />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input readOnly aria-label="Your calendar link" value={url} onFocus={(e) => e.target.select()} className={`${field} h-11 min-w-0 font-mono text-xs`} />
+            <button type="button" onClick={copy} className={linkBtn} aria-label="Copy calendar link">
+              <Copy className="size-4" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a className={linkBtn} target="_blank" rel="noreferrer" href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal!)}`}>
+              <CalendarSync className="size-4" /> Add to Google Calendar
+            </a>
+            <a className={linkBtn} target="_blank" rel="noreferrer"
+              href={`https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(url)}&name=MeetApp`}>
+              <CalendarSync className="size-4" /> Add to Outlook
+            </a>
+            <a className={linkBtn} href={webcal}>
+              <CalendarSync className="size-4" /> Apple Calendar
+            </a>
+          </div>
+          <p className="text-xs text-muted-foreground">Calendar apps refresh subscribed calendars every few hours, so a new meeting can take a while to appear.</p>
+          {confirmReset ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-muted px-3 py-2 text-sm">
+              <span className="flex-1">Make a new link? Calendars using the old one stop updating.</span>
+              <button type="button" className={linkBtn} onClick={() => setConfirmReset(false)} disabled={busy}>Keep it</button>
+              <button type="button" className={`${linkBtn} border-red-500/40 text-red-600 dark:text-red-400`} onClick={reset} disabled={busy}>
+                {busy && <Loader2 className="size-4 animate-spin" />} New link
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setConfirmReset(true)} className="flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-4 hover:underline">
+              <RefreshCw className="size-3.5" /> Shared it by mistake? Make a new link
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function ProfilePage() {
   const { user, setUser } = useAuth();
 
@@ -259,6 +336,7 @@ export function ProfilePage() {
             <NameCard key={user.name} user={user} onSaved={setUser} />
             <PasswordCard user={user} onSaved={setUser} />
           </div>
+          <CalendarCard />
         </>
       )}
     </div>

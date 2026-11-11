@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 const SECTIONS = [
   { id: "features", label: "Features" },
   { id: "how", label: "How it works" },
+  { id: "pricing", label: "Pricing" },
   { id: "faq", label: "FAQ" },
 ];
 

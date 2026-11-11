@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -21,10 +21,12 @@ import {
   Printer,
   Mail,
   RefreshCw,
-  Sparkles,
+  AlignLeft,
+  PenLine,
   Users,
 } from "lucide-react";
 import { cn } from "cn";
+import { AskAI } from "@/components/notes/AskAI";
 import { Logo } from "@/components/Logo";
 import { UserMenu } from "@/components/UserMenu";
 import { Avatar } from "@/components/call/Avatar";
@@ -75,7 +77,7 @@ function Section({ icon, title, count, children }: { icon: React.ReactNode; titl
 function NotesView({ n }: { n: NotesContent }) {
   return (
     <div className="grid gap-4 print:block">
-      <Section icon={<Sparkles className="size-4 text-brand" />} title="Summary">
+      <Section icon={<AlignLeft className="size-4 text-brand" />} title="Summary">
         <p className="text-base leading-relaxed sm:text-lg">{n.summary || "—"}</p>
       </Section>
 
@@ -176,8 +178,19 @@ function NotesSkeleton() {
   );
 }
 
-function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Record<string, string>; meta: TranscriptMeta }) {
+/** Scrolls to the row a search result pointed at (?line= / ?msg=) and marks it for a moment. */
+function useJumpTo(id: string | null, ready: boolean) {
+  useEffect(() => {
+    if (!id || !ready) return;
+    const el = document.getElementById(`row-${id}`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [id, ready]);
+}
+const jumpCls = (on: boolean) => (on ? "bg-brand/20 ring-1 ring-brand/50" : "");
+
+function Transcript({ roomCode, headers, meta, focus }: { roomCode: string; headers: Record<string, string>; meta: TranscriptMeta; focus: string | null }) {
   const [rows, setRows] = useState<TranscriptRow[] | null>(null);
+  useJumpTo(focus, !!rows);
   const [error, setError] = useState("");
   useEffect(() => {
     meetingsApi
@@ -223,7 +236,7 @@ function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Re
       {rows.map((r, i) => {
         const sameSpeaker = rows[i - 1]?.speakerName === r.speakerName;
         return (
-          <li key={r.id} className={cn("flex gap-3 rounded-xl px-2 py-1.5", !sameSpeaker && "mt-2 first:mt-0")}>
+          <li key={r.id} id={`row-${r.id}`} className={cn("flex scroll-mt-24 gap-3 rounded-xl px-2 py-1.5", !sameSpeaker && "mt-2 first:mt-0", jumpCls(r.id === focus))}>
             <span className="w-9 shrink-0">{!sameSpeaker && <Avatar name={r.speakerName} size="sm" />}</span>
             <div className="min-w-0 flex-1">
               {!sameSpeaker && (
@@ -242,8 +255,9 @@ function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Re
 }
 
 /** Chat messages from the call, in order. */
-function ChatLog({ roomCode, headers }: { roomCode: string; headers: Record<string, string> }) {
+function ChatLog({ roomCode, headers, focus = null }: { roomCode: string; headers: Record<string, string>; focus?: string | null }) {
   const [rows, setRows] = useState<ChatRow[] | null>(null);
+  useJumpTo(focus, !!rows);
   const [error, setError] = useState("");
   useEffect(() => {
     meetingsApi
@@ -275,7 +289,7 @@ function ChatLog({ roomCode, headers }: { roomCode: string; headers: Record<stri
       {rows.map((r, i) => {
         const same = rows[i - 1]?.senderName === r.senderName;
         return (
-          <li key={r.id} className={cn("flex gap-3 rounded-xl px-2 py-1.5", !same && "mt-2 first:mt-0")}>
+          <li key={r.id} id={`row-${r.id}`} className={cn("flex scroll-mt-24 gap-3 rounded-xl px-2 py-1.5", !same && "mt-2 first:mt-0", jumpCls(r.id === focus))}>
             <span className="w-9 shrink-0">{!same && <Avatar name={r.senderName} size="sm" />}</span>
             <div className="min-w-0 flex-1">
               {!same && (
@@ -292,12 +306,20 @@ function ChatLog({ roomCode, headers }: { roomCode: string; headers: Record<stri
   );
 }
 
+type Tab = "notes" | "transcript" | "chat" | "ask";
+
 export function NotesPage() {
   const { roomCode = "" } = useParams();
   const { user } = useAuth();
+  const [params] = useSearchParams();
+  const focusLine = params.get("line");
+  const focusMsg = params.get("msg");
   const [data, setData] = useState<NotesResponse | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
-  const [tab, setTab] = useState<"notes" | "transcript" | "chat">("notes");
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = params.get("tab");
+    return t === "transcript" || t === "chat" || t === "ask" ? t : "notes";
+  });
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const hostKey = getHostKey(roomCode);
@@ -464,8 +486,8 @@ export function NotesPage() {
             {/* tabs */}
             {notes?.status === "READY" && !editing && (
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
-                <div role="tablist" className="flex rounded-2xl bg-muted p-1">
-                  {(["notes", "transcript", "chat"] as const).map((t) => (
+                <div role="tablist" className="flex max-w-full overflow-x-auto rounded-2xl bg-muted p-1">
+                  {(["notes", "transcript", "chat", ...(user?.emailVerified ? (["ask"] as const) : [])] as const).map((t) => (
                     <button
                       key={t}
                       role="tab"
@@ -473,11 +495,11 @@ export function NotesPage() {
                       aria-selected={tab === t}
                       onClick={() => setTab(t)}
                       className={cn(
-                        "rounded-xl px-4 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
+                        "shrink-0 rounded-xl px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
                         tab === t ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {t === "notes" ? "Notes" : t === "transcript" ? `Transcript · ${data.lineCount}` : `Chat · ${data.chatCount}`}
+                      {t === "notes" ? "Notes" : t === "transcript" ? `Transcript · ${data.lineCount}` : t === "chat" ? `Chat · ${data.chatCount}` : "Ask AI"}
                     </button>
                   ))}
                 </div>
@@ -522,7 +544,7 @@ export function NotesPage() {
                 </Link>
               </StateCard>
             ) : !notes || notes.status === "PENDING" ? (
-              <StateCard icon={<Sparkles className="size-8 animate-pulse text-brand" />} title="Writing your notes…">
+              <StateCard icon={<PenLine className="size-8 animate-pulse text-brand" />} title="Writing your notes…">
                 <p className="text-sm text-muted-foreground">
                   Reading {data.lineCount} caption {data.lineCount === 1 ? "line" : "lines"} and pulling out the summary, decisions and
                   action items. This usually takes under a minute.
@@ -570,11 +592,14 @@ export function NotesPage() {
                 </p>
               </>
             ) : tab === "chat" ? (
-              <ChatLog roomCode={roomCode} headers={headers} />
+              <ChatLog roomCode={roomCode} headers={headers} focus={focusMsg} />
+            ) : tab === "ask" ? (
+              <AskAI roomCode={roomCode} />
             ) : (
               <Transcript
                 roomCode={roomCode}
                 headers={headers}
+                focus={focusLine}
                 meta={{ meetingTitle: data.meeting.title, dateLine: dateLine(data.meeting), attendees: data.attendees }}
               />
             )}

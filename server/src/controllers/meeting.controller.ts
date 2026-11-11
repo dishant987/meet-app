@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import * as meetingService from "../services/meeting.service.js";
+import * as askService from "../services/ask.service.js";
+import * as searchService from "../services/search.service.js";
 import { AppError } from "../utils/AppError.js";
 import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 
@@ -12,12 +14,12 @@ function assertCanInvite(req: Request, invitees?: string[], scheduledFor?: strin
 }
 
 export async function create(req: Request, res: Response) {
-  const { title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount } = req.body;
+  const { title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount, teamId } = req.body;
   // scheduling and invites need an account (so emails can't be sent anonymously)
   if ((scheduledFor || invitees?.length) && !req.user)
     throw new AppError(401, "SIGN_IN_TO_SCHEDULE", "Sign in to schedule meetings and send invites");
   assertCanInvite(req, invitees, scheduledFor);
-  const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount }, req.user?.id);
+  const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount, teamId }, req.user?.id);
   res.status(201).json({ success: true, data: meeting });
 }
 
@@ -153,4 +155,18 @@ export async function rsvp(req: Request, res: Response) {
 export async function seriesCurrent(req: Request<{ seriesId: string }>, res: Response) {
   res.set("cache-control", "no-store");
   res.json({ success: true, data: await meetingService.currentInSeries(req.params.seriesId) });
+}
+
+export async function ask(req: Request<{ roomCode: string }>, res: Response) {
+  res.status(201).json({ success: true, data: await askService.askAboutMeeting(req.params.roomCode, req.user!.id, req.body.question, req.body.timeZone) });
+}
+
+export async function questions(req: Request<{ roomCode: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await askService.myQuestions(req.params.roomCode, req.user!.id) });
+}
+
+export async function search(req: Request, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await searchService.search(req.user!.id, String(req.query.q)) });
 }
