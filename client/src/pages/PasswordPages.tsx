@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { CircleCheck, Loader2, MailCheck } from "lucide-react";
+import { CircleCheck, Loader2, MailCheck, RotateCw } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api, errorMessage, fieldErrors } from "@/lib/api";
@@ -220,6 +220,78 @@ export function VerifyEmailPage() {
       <Link to={user ? "/dashboard" : "/signin"} className={primary}>
         {user ? "Back to dashboard (resend from there)" : "Sign in to get a new link"}
       </Link>
+    </Shell>
+  );
+}
+
+/** After an email sign-up: "check your inbox". Moves on by itself once the link is clicked (here or on another device). */
+export function CheckEmailPage() {
+  const [params] = useSearchParams();
+  const next = params.get("next")?.startsWith("/") ? params.get("next")! : "/dashboard";
+  const { user, loading, setUser, logout } = useAuth();
+  const [busy, setBusy] = useState<"resend" | "out" | null>(null);
+
+  // look again every few seconds and when the tab gets focus (the link is often opened in another tab)
+  useEffect(() => {
+    if (!user || user.emailVerified) return;
+    const refresh = () =>
+      api
+        .get<{ data: User | null }>("/auth/me")
+        .then((r) => r.data.data?.emailVerified && setUser(r.data.data))
+        .catch(() => {});
+    const timer = setInterval(refresh, 5000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [user, setUser]);
+
+  if (loading) return null;
+  if (!user) return <Navigate to={busy === "out" ? "/signup" : "/signin"} replace />;
+  if (user.emailVerified) return <Navigate to={next} replace />;
+
+  async function resend() {
+    setBusy("resend");
+    try {
+      const { data } = await api.post<{ data: { alreadyVerified: boolean } }>("/auth/resend-verification");
+      if (data.data.alreadyVerified) setUser({ ...user!, emailVerified: true });
+      else toast.success(`New link sent to ${user!.email}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function differentEmail() {
+    setBusy("out");
+    await logout(); // then the redirect above sends them to Sign up
+  }
+
+  return (
+    <Shell title="Check your email" subtitle="One last step: confirm your email to start using MeetApp.">
+      <div className="flex gap-3 rounded-2xl border border-border bg-card p-4">
+        <MailCheck className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+        <p className="text-sm">
+          We sent a link to <span className="font-semibold break-all">{user.email}</span>. Open it to finish. This page moves on by itself once
+          you've clicked it.
+        </p>
+      </div>
+      <div className="space-y-3">
+        <button type="button" onClick={resend} disabled={!!busy} className={primary}>
+          {busy === "resend" ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />} Resend link
+        </button>
+        <button
+          type="button"
+          onClick={differentEmail}
+          disabled={!!busy}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-border font-medium transition hover:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none disabled:opacity-60"
+        >
+          {busy === "out" && <Loader2 className="size-4 animate-spin" />} Use a different email
+        </button>
+      </div>
+      <p className="text-sm text-muted-foreground">Can't find it? Check your spam folder. The link works for 24 hours.</p>
     </Shell>
   );
 }

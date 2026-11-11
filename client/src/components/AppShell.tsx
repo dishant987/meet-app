@@ -15,7 +15,6 @@ import { useAuth } from "@/lib/auth";
 import { useStartMeeting } from "@/lib/useStartMeeting";
 import { useIconHover } from "@/lib/useIconHover";
 import { installApp, useCanInstall } from "@/lib/install";
-import { ConfirmEmailBanner } from "@/components/ConfirmEmailBanner";
 
 const NAV = [
   { to: "/dashboard", label: "Home", Icon: HouseIcon },
@@ -199,6 +198,8 @@ export function AppShell() {
   }, [menuOpen]);
 
   if (!loading && !user) return <Navigate to={`/signin?next=${encodeURIComponent(pathname)}`} replace />;
+  // email sign-ups use the app only after confirming their email
+  if (user && !user.emailVerified) return <Navigate to={`/check-email?next=${encodeURIComponent(pathname)}`} replace />;
 
   return (
     <div className="flex min-h-dvh bg-background">
@@ -245,7 +246,6 @@ export function AppShell() {
           <AccountMenu />
         </header>
         <main className="flex-1">
-          <ConfirmEmailBanner />
           {/* the page area loads on its own, so the sidebar stays put while switching pages */}
           {user ? (
             <Suspense fallback={<PageSkeleton />}>

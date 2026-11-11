@@ -58,9 +58,13 @@ export function AuthPage({ mode }: { mode: "signin" | "signup" }) {
 
     setBusy(true);
     try {
-      if (signup) await register(v.name.trim(), clean.email, clean.password);
-      else await login(clean.email, clean.password);
-      navigate(next, { replace: true });
+      if (signup) {
+        await register(v.name.trim(), clean.email, clean.password);
+        navigate(`/check-email?next=${encodeURIComponent(next)}`, { replace: true }); // confirm first
+      } else {
+        await login(clean.email, clean.password);
+        navigate(next, { replace: true });
+      }
     } catch (err) {
       const fields = formFieldErrors(err);
       if (fields) setFieldErrors(fields);
