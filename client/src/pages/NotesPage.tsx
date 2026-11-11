@@ -15,6 +15,7 @@ import {
   Gavel,
   ListChecks,
   Loader2,
+  MessageSquareOff,
   MicOff,
   Pencil,
   Printer,
@@ -27,7 +28,7 @@ import { cn } from "cn";
 import { Logo } from "@/components/Logo";
 import { UserMenu } from "@/components/UserMenu";
 import { Avatar } from "@/components/call/Avatar";
-import { ApiError, errorMessage, meetingsApi, type NotesContent, type NotesResponse, type TranscriptRow } from "@/lib/api";
+import { ApiError, errorMessage, meetingsApi, type NotesContent, type NotesResponse, type TranscriptRow, type ChatRow } from "@/lib/api";
 import { accessHeaders, getHostKey } from "@/lib/meetingAccess";
 import { downloadTranscriptText, downloadTranscriptWord, downloadWord, toMarkdown, type NotesDoc, type TranscriptMeta } from "@/lib/notesExport";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
@@ -240,12 +241,63 @@ function Transcript({ roomCode, headers, meta }: { roomCode: string; headers: Re
   );
 }
 
+/** Chat messages from the call, in order. */
+function ChatLog({ roomCode, headers }: { roomCode: string; headers: Record<string, string> }) {
+  const [rows, setRows] = useState<ChatRow[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    meetingsApi
+      .chat(roomCode, headers)
+      .then(setRows)
+      .catch((e) => setError(errorMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- headers come from localStorage; load once
+  }, [roomCode]);
+
+  if (error) return <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't load the chat">{error}</StateCard>;
+  if (!rows)
+    return (
+      <div role="status" aria-label="Loading chat" className="space-y-4 rounded-3xl border border-border bg-card p-4">
+        {[60, 85, 45].map((w, i) => (
+          <div key={i} className="flex gap-3">
+            <Skeleton className="size-9 shrink-0 rounded-xl" />
+            <div className="flex-1 space-y-2 pt-1">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3.5" style={{ width: `${w}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  if (rows.length === 0)
+    return <StateCard icon={<MessageSquareOff className="size-8 text-muted-foreground" />} title="No chat messages">Nobody wrote in the chat during this meeting.</StateCard>;
+  return (
+    <ol className="space-y-1 rounded-3xl border border-border bg-card p-3 sm:p-4">
+      {rows.map((r, i) => {
+        const same = rows[i - 1]?.senderName === r.senderName;
+        return (
+          <li key={r.id} className={cn("flex gap-3 rounded-xl px-2 py-1.5", !same && "mt-2 first:mt-0")}>
+            <span className="w-9 shrink-0">{!same && <Avatar name={r.senderName} size="sm" />}</span>
+            <div className="min-w-0 flex-1">
+              {!same && (
+                <p className="text-sm font-semibold">
+                  {r.senderName} <span className="font-normal text-muted-foreground">{fmtTime(r.sentAt)}</span>
+                </p>
+              )}
+              <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{r.text}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export function NotesPage() {
   const { roomCode = "" } = useParams();
   const { user } = useAuth();
   const [data, setData] = useState<NotesResponse | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
-  const [tab, setTab] = useState<"notes" | "transcript">("notes");
+  const [tab, setTab] = useState<"notes" | "transcript" | "chat">("notes");
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const hostKey = getHostKey(roomCode);
@@ -411,9 +463,9 @@ export function NotesPage() {
 
             {/* tabs */}
             {notes?.status === "READY" && !editing && (
-              <div className="mb-5 flex items-center justify-between gap-3 print:hidden">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
                 <div role="tablist" className="flex rounded-2xl bg-muted p-1">
-                  {(["notes", "transcript"] as const).map((t) => (
+                  {(["notes", "transcript", "chat"] as const).map((t) => (
                     <button
                       key={t}
                       role="tab"
@@ -425,7 +477,7 @@ export function NotesPage() {
                         tab === t ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {t === "notes" ? "Notes" : `Transcript · ${data.lineCount}`}
+                      {t === "notes" ? "Notes" : t === "transcript" ? `Transcript · ${data.lineCount}` : `Chat · ${data.chatCount}`}
                     </button>
                   ))}
                 </div>
@@ -480,12 +532,20 @@ export function NotesPage() {
                 </div>
               </StateCard>
             ) : notes.status === "EMPTY" ? (
-              <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="Nothing to summarize">
-                <p className="text-sm text-muted-foreground">
-                  No captions were recorded in this meeting, so there's no transcript to write notes from. Next time, turn on captions
-                  (the CC button) while you talk.
-                </p>
-              </StateCard>
+              <>
+                <StateCard icon={<MicOff className="size-8 text-muted-foreground" />} title="Nothing to summarize">
+                  <p className="text-sm text-muted-foreground">
+                    No captions were recorded in this meeting, so there's no transcript to write notes from. Next time, turn on captions
+                    (the CC button) while you talk.
+                  </p>
+                </StateCard>
+                {data.chatCount > 0 && (
+                  <section aria-label="Chat" className="mt-8">
+                    <h2 className="mb-3 text-lg font-semibold">Chat · {data.chatCount}</h2>
+                    <ChatLog roomCode={roomCode} headers={headers} />
+                  </section>
+                )}
+              </>
             ) : notes.status === "FAILED" ? (
               <StateCard icon={<AlertTriangle className="size-8 text-amber-500" />} title="Couldn't write the notes">
                 <p className="text-sm text-muted-foreground">
@@ -509,6 +569,8 @@ export function NotesPage() {
                   important details against the transcript.
                 </p>
               </>
+            ) : tab === "chat" ? (
+              <ChatLog roomCode={roomCode} headers={headers} />
             ) : (
               <Transcript
                 roomCode={roomCode}

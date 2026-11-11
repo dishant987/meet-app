@@ -36,6 +36,8 @@ const schema = z.object({
   B2_BUCKET: z.string().trim().optional(),
   B2_ENDPOINT: z.string().trim().optional(),
   B2_REGION: z.string().trim().optional(),
+  // Reminder emails: the scheduler (cron-job.org / Vercel cron) calls /api/cron/reminders with "Authorization: Bearer <this>".
+  CRON_SECRET: z.string().trim().min(16).optional(),
 });
 
 // Trim stray spaces / Windows line endings (easy to paste into a hosting dashboard by accident);

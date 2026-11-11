@@ -8,7 +8,9 @@ import { resetPasswordEmail, sendEmail, verifyEmailEmail } from "./email.service
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 const secret = new TextEncoder().encode(env.JWT_SECRET);
-export const SESSION_DAYS = 30;
+export const SESSION_DAYS = 30; // longest a sign-in lasts, even when used every day
+export const IDLE_HOURS = 24; // a session not used for this long stops working (also a copied cookie)
+const RENEW_AFTER_MS = 10 * 60_000; // re-issue the token at most every 10 minutes of use
 
 export type PublicUser = {
   id: string;
@@ -90,25 +92,34 @@ export async function login(email: string, password: string) {
   return publicUser(user);
 }
 
-/** Session token. It carries the account's sessionVersion; bumping that (password change/reset) ends older sessions. */
-export async function createSessionToken(userId: string) {
+/**
+ * Session token. It carries the account's sessionVersion (bumping that on a password change/reset ends older
+ * sessions) and when the person signed in (`auth`). It expires after IDLE_HOURS; using the app renews it.
+ */
+export async function createSessionToken(userId: string, signedInAt = Math.floor(Date.now() / 1000)) {
   const { sessionVersion } = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { sessionVersion: true } });
-  return new SignJWT({ v: sessionVersion })
+  const idleEnd = Math.floor(Date.now() / 1000) + IDLE_HOURS * 3600;
+  return new SignJWT({ v: sessionVersion, auth: signedInAt })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_DAYS}d`)
+    .setExpirationTime(Math.min(idleEnd, signedInAt + SESSION_DAYS * 86_400))
     .sign(secret);
 }
 
-/** Returns the user for a valid session token, or null (expired, tampered, deleted user, or ended by a password change). */
-export async function userFromToken(token: string): Promise<PublicUser | null> {
+/**
+ * The user for a valid session token, or null (expired / idle too long, tampered, deleted user, or ended by a
+ * password change). `renewed` is a fresh token when this one is more than a few minutes old.
+ */
+export async function userFromToken(token: string): Promise<{ user: PublicUser; renewed?: string } | null> {
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
     if (!payload.sub) return null;
     const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { ...USER_FIELDS, sessionVersion: true } });
     if (!user || (payload.v ?? 0) !== user.sessionVersion) return null;
-    return publicUser(user);
+    const signedInAt = typeof payload.auth === "number" ? payload.auth : (payload.iat ?? 0);
+    const stale = Date.now() - (payload.iat ?? 0) * 1000 > RENEW_AFTER_MS;
+    return { user: publicUser(user), renewed: stale ? await createSessionToken(user.id, signedInAt) : undefined };
   } catch {
     return null;
   }

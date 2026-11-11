@@ -94,6 +94,14 @@ const CheckEmailPage = page(
   () => import("@/pages/PasswordPages"),
   (m) => m.CheckEmailPage,
 );
+const SeriesPage = page(
+  () => import("@/pages/InvitePages"),
+  (m) => m.SeriesPage,
+);
+const ReplyPage = page(
+  () => import("@/pages/InvitePages"),
+  (m) => m.ReplyPage,
+);
 const NotFoundPage = page(
   () => import("@/pages/NotFoundPage"),
   (m) => m.NotFoundPage,
@@ -155,6 +163,8 @@ const router = createBrowserRouter([
       { path: "/reset-password", element: load(<ResetPasswordPage />) },
       { path: "/verify-email", element: load(<VerifyEmailPage />) },
       { path: "/check-email", element: load(<CheckEmailPage />) },
+      { path: "/s/:seriesId", element: load(<SeriesPage />) },
+      { path: "/rsvp", element: load(<ReplyPage />) },
       { path: "*", element: load(<NotFoundPage />) },
     ],
   },

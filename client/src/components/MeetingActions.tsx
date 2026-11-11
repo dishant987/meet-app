@@ -28,7 +28,8 @@ export function MeetingActions({ m, onChanged, className }: { m: MyMeeting; onCh
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [cancelling, setCancelling] = useState<"one" | "series" | null>(null);
+  const repeats = !!m.seriesId;
 
   async function copyLink() {
     setMenu(false);
@@ -40,17 +41,18 @@ export function MeetingActions({ m, onChanged, className }: { m: MyMeeting; onCh
     }
   }
 
-  async function cancel() {
-    setCancelling(true);
+  async function cancel(scope: "one" | "series") {
+    setCancelling(scope);
     try {
-      const r = await meetingsApi.cancelMeeting(m.roomCode, getHostKey(m.roomCode));
-      toast.success(r.notified ? `Meeting cancelled. ${r.notified} ${r.notified === 1 ? "guest was" : "guests were"} told.` : "Meeting cancelled.");
+      const r = await meetingsApi.cancelMeeting(m.roomCode, getHostKey(m.roomCode), scope);
+      const what = scope === "series" ? "All upcoming meetings in the series cancelled." : "Meeting cancelled.";
+      toast.success(r.notified ? `${what} ${r.notified} ${r.notified === 1 ? "guest was" : "guests were"} told.` : what);
       setConfirm(false);
       onChanged();
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
-      setCancelling(false);
+      setCancelling(null);
     }
   }
 
@@ -85,29 +87,43 @@ export function MeetingActions({ m, onChanged, className }: { m: MyMeeting; onCh
       <ScheduleDialog editRoomCode={m.roomCode} open={editing} onOpenChange={setEditing} onScheduled={onChanged} />
 
       <AlertDialog open={confirm} onOpenChange={(o) => !cancelling && setConfirm(o)}>
-        <AlertDialogContent className="rounded-3xl sm:max-w-sm">
+        <AlertDialogContent className={cn("rounded-3xl", repeats ? "sm:max-w-md!" : "sm:max-w-sm")}>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel "{m.title}"?</AlertDialogTitle>
             <AlertDialogDescription>
               {m.invitedCount
                 ? `${m.invitedCount} ${m.invitedCount === 1 ? "guest gets" : "guests get"} a cancellation email and it's removed from their calendar. `
                 : ""}
-              The link stops working. This can't be undone.
+              {repeats
+                ? "This meeting repeats: cancel just this one, or this and every later one. Cancelled links stop working. This can't be undone."
+                : "The link stops working. This can't be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelling} className="rounded-xl">
+            <AlertDialogCancel disabled={!!cancelling} className="rounded-xl">
               Keep meeting
             </AlertDialogCancel>
+            {repeats && (
+              <AlertDialogAction
+                disabled={!!cancelling}
+                onClick={(e) => {
+                  e.preventDefault(); // stay open until it's done
+                  void cancel("series");
+                }}
+                className="rounded-xl border border-red-500/40 bg-transparent text-red-600 hover:bg-red-500/10 dark:text-red-400"
+              >
+                {cancelling === "series" && <Loader2 className="size-4 animate-spin" />} Cancel all upcoming
+              </AlertDialogAction>
+            )}
             <AlertDialogAction
-              disabled={cancelling}
+              disabled={!!cancelling}
               onClick={(e) => {
                 e.preventDefault(); // stay open until it's done
-                void cancel();
+                void cancel("one");
               }}
               className="rounded-xl bg-red-500 text-white hover:bg-red-600"
             >
-              {cancelling && <Loader2 className="size-4 animate-spin" />} Cancel meeting
+              {cancelling === "one" && <Loader2 className="size-4 animate-spin" />} {repeats ? "Cancel this one" : "Cancel meeting"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -13,6 +13,7 @@ import { meRoutes, userRoutes } from "./routes/profile.routes.js";
 import { loadUser } from "./middlewares/auth.js";
 import { apiLimiter } from "./middlewares/rateLimit.js";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
+import * as cron from "./controllers/cron.controller.js";
 
 export const app = express();
 
@@ -45,6 +46,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/me", meRoutes);
 app.use("/api/users", userRoutes);
+app.all("/api/cron/reminders", cron.reminders);
 
 app.use(notFound);
 app.use(errorHandler);

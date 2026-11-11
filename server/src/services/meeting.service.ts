@@ -1,4 +1,5 @@
 import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "../config/db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { AppError } from "../utils/AppError.js";
@@ -16,29 +17,52 @@ import { avatarUrl } from "./auth.service.js";
 const letters = (n: number) => Array.from({ length: n }, () => String.fromCharCode(97 + randomInt(26))).join("");
 const newRoomCode = () => `${letters(3)}-${letters(4)}-${letters(3)}`; // e.g. abc-defg-hij
 
-export type NewMeeting = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
+export type Repeat = "DAILY" | "WEEKLY";
+export type NewMeeting = {
+  title?: string;
+  scheduledFor?: string;
+  durationMin?: number;
+  invitees?: string[];
+  timeZone?: string;
+  /** Recurring: repeat daily or weekly, `repeatCount` meetings in total (each its own meeting, one calendar series). */
+  repeat?: Repeat;
+  repeatCount?: number;
+};
+
+// shortcut: fixed 24 h / 7 d steps in UTC (same as the calendar RRULE with a UTC start); across a daylight-saving
+// change the local time moves by an hour. Store the host's time zone if that matters later.
+const stepMs = (freq: Repeat) => (freq === "WEEKLY" ? 7 : 1) * 86_400_000;
 
 export async function createMeeting(input: NewMeeting, hostId?: string) {
   const invitees = [...new Set(input.invitees ?? [])];
   const scheduledFor = input.scheduledFor ? new Date(input.scheduledFor) : null;
+  const count = scheduledFor && input.repeat ? (input.repeatCount ?? 4) : 1;
+  const seriesId = count > 1 ? randomBytes(9).toString("base64url") : null;
   // 26^10 codes, so a clash is near impossible; retry a few times just in case.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       // hostKey goes back only in this response; the creator's browser keeps it to end the meeting later.
-      const meeting = await prisma.meeting.create({
-        data: {
-          title: input.title || (scheduledFor ? "Scheduled meeting" : "Quick meeting"),
-          roomCode: newRoomCode(),
-          hostKey: randomBytes(24).toString("base64url"),
-          hostId,
-          scheduledFor,
-          durationMin: scheduledFor ? (input.durationMin ?? 30) : null,
-          invites: invitees.length ? { create: invitees.map((email) => ({ email })) } : undefined,
-        },
-        select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true, scheduledFor: true, durationMin: true },
-      });
+      const rows = await prisma.$transaction(
+        Array.from({ length: count }, (_, i) =>
+          prisma.meeting.create({
+            data: {
+              title: input.title || (scheduledFor ? "Scheduled meeting" : "Quick meeting"),
+              roomCode: newRoomCode(),
+              hostKey: randomBytes(24).toString("base64url"),
+              hostId,
+              scheduledFor: scheduledFor && new Date(scheduledFor.getTime() + i * (seriesId ? stepMs(input.repeat!) : 0)),
+              durationMin: scheduledFor ? (input.durationMin ?? 30) : null,
+              seriesId,
+              recurrence: seriesId ? input.repeat : null,
+              invites: invitees.length ? { create: invitees.map((email) => ({ email })) } : undefined,
+            },
+            select: { id: true, title: true, roomCode: true, status: true, createdAt: true, hostKey: true, scheduledFor: true, durationMin: true },
+          }),
+        ),
+      );
+      const meeting = rows[0]!;
       if (invitees.length) sendLater(sendInvites(meeting.id, input.timeZone));
-      return { ...meeting, invited: invitees.length };
+      return { ...meeting, invited: invitees.length, occurrences: count };
     } catch (err) {
       if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
     }
@@ -46,10 +70,100 @@ export async function createMeeting(input: NewMeeting, hostId?: string) {
   throw new AppError(500, "ROOM_CODE_FAILED", "Could not create a meeting code, try again");
 }
 
-type InviteKind = "new" | "updated" | "cancelled" | "removed";
+type InviteKind = "new" | "updated" | "cancelled" | "removed" | "cancelled-one";
+
+// ---------- guest replies (Yes / Maybe / No links in the invite email) ----------
+
+const replySecret = new TextEncoder().encode(env.JWT_SECRET);
+export type Answer = "YES" | "MAYBE" | "NO";
+
+/** Personal reply links for one guest of one meeting (or its whole series). */
+async function replyLinks(meetingId: string, email: string) {
+  const t = await new SignJWT({ purpose: "rsvp", m: meetingId, e: email })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("400d")
+    .sign(replySecret);
+  const link = (a: string) => `${env.CLIENT_URL}/rsvp?t=${t}&a=${a}`;
+  return { yes: link("yes"), maybe: link("maybe"), no: link("no") };
+}
+
+/** Saves a guest's answer from their link (no sign-in needed), or just reads it when `answer` is left out. */
+export async function answerInvite(token: string, answer?: Answer) {
+  const bad = new AppError(400, "RSVP_LINK_INVALID", "This link is invalid. Use the buttons in your latest invite email.");
+  let p: Record<string, unknown>;
+  try {
+    ({ payload: p } = await jwtVerify(token, replySecret, { algorithms: ["HS256"] }));
+  } catch {
+    throw bad;
+  }
+  if (p.purpose !== "rsvp" || typeof p.m !== "string" || typeof p.e !== "string") throw bad;
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: p.m },
+    select: {
+      id: true,
+      title: true,
+      roomCode: true,
+      scheduledFor: true,
+      durationMin: true,
+      seriesId: true,
+      recurrence: true,
+      cancelledAt: true,
+      host: { select: { name: true } },
+    },
+  });
+  if (!meeting) throw bad;
+  // a series: the answer is for every meeting still to come
+  const scope: Prisma.MeetingWhereInput = meeting.seriesId
+    ? { seriesId: meeting.seriesId, status: "SCHEDULED", cancelledAt: null }
+    : { id: meeting.id };
+  const invite = await prisma.invite.findFirst({ where: { email: p.e, meeting: scope }, select: { response: true } });
+  if (!invite) {
+    if (meeting.cancelledAt) throw new AppError(410, "MEETING_CANCELLED", "The host cancelled this meeting.");
+    throw new AppError(404, "NOT_INVITED", "You're no longer invited to this meeting.");
+  }
+  if (answer) await prisma.invite.updateMany({ where: { email: p.e, meeting: scope }, data: { response: answer, respondedAt: new Date() } });
+  const next = meeting.seriesId
+    ? await prisma.meeting.findFirst({ where: scope, orderBy: { scheduledFor: "asc" }, select: { scheduledFor: true } })
+    : meeting;
+  return {
+    title: meeting.title,
+    hostName: meeting.host?.name ?? null,
+    scheduledFor: next?.scheduledFor ?? meeting.scheduledFor,
+    durationMin: meeting.durationMin,
+    recurrence: meeting.recurrence,
+    answer: answer ?? (invite.response as Answer | null),
+    link: meeting.seriesId ? `/s/${meeting.seriesId}` : `/m/${meeting.roomCode}`,
+  };
+}
+
+/** The meeting a series link should open: the live one, else the next that isn't over yet. */
+export async function currentInSeries(seriesId: string) {
+  const occ = await prisma.meeting.findMany({
+    where: { seriesId, cancelledAt: null, status: { not: "ENDED" } },
+    orderBy: { scheduledFor: "asc" },
+    select: { roomCode: true, status: true, scheduledFor: true, durationMin: true },
+  });
+  if (!occ.length) {
+    const exists = await prisma.meeting.count({ where: { seriesId } });
+    if (!exists) throw new AppError(404, "MEETING_NOT_FOUND", "This meeting does not exist. Check the link.");
+    throw new AppError(410, "SERIES_ENDED", "All meetings in this series are over or cancelled.");
+  }
+  const now = Date.now();
+  const notOver = (o: (typeof occ)[number]) => o.scheduledFor!.getTime() + ((o.durationMin ?? 30) + 60) * 60_000 > now; // 1 h grace
+  const pick = occ.find((o) => o.status === "LIVE") ?? occ.find(notOver) ?? occ.at(-1)!;
+  return { roomCode: pick.roomCode };
+}
+
+/** Upcoming meetings of a series (or just this meeting). */
+const upcoming = (m: { id: string; seriesId: string | null }): Prisma.MeetingWhereInput =>
+  m.seriesId ? { seriesId: m.seriesId, status: "SCHEDULED" } : { id: m.id };
+const bumpSequence = (m: { id: string; seriesId: string | null }) =>
+  prisma.meeting.updateMany({ where: upcoming(m), data: { inviteSequence: { increment: 1 } } });
 
 /**
  * Calendar emails to guests: a new invite, an update (same calendar event, higher version), or a cancellation.
+ * A recurring meeting is one calendar series (RRULE) whose link opens whichever meeting is current.
  * `to` limits who gets it (default: everyone invited). One email per guest, so nobody sees the others.
  */
 export async function sendInvites(meetingId: string, timeZone?: string, opts: { kind?: InviteKind; to?: string[] } = {}) {
@@ -63,40 +177,70 @@ export async function sendInvites(meetingId: string, timeZone?: string, opts: { 
       scheduledFor: true,
       durationMin: true,
       inviteSequence: true,
+      seriesId: true,
+      recurrence: true,
       host: { select: { name: true, email: true } },
       invites: { select: { email: true } },
     },
   });
   const to = opts.to ?? m.invites.map((i) => i.email);
   if (!m.scheduledFor || !to.length) return { sent: 0 };
-  const link = `${env.CLIENT_URL}/m/${m.roomCode}`;
+
+  let start = m.scheduledFor;
+  let sequence = m.inviteSequence;
+  let repeat: { freq: Repeat; count: number; skip: Date[] } | undefined;
+  let link = `${env.CLIENT_URL}/m/${m.roomCode}`;
+  let uid = `${m.id}@meetapp`; // same event every time: calendars update or remove it
+  if (m.seriesId) {
+    const occ = await prisma.meeting.findMany({
+      where: { seriesId: m.seriesId, status: "SCHEDULED" },
+      orderBy: { scheduledFor: "asc" },
+      select: { scheduledFor: true, cancelledAt: true, inviteSequence: true },
+    });
+    if (occ.length) {
+      start = occ[0]!.scheduledFor!;
+      sequence = Math.max(sequence, ...occ.map((o) => o.inviteSequence));
+      repeat = { freq: m.recurrence as Repeat, count: occ.length, skip: occ.filter((o) => o.cancelledAt).map((o) => o.scheduledFor!) };
+    }
+    link = `${env.CLIENT_URL}/s/${m.seriesId}`;
+    uid = `series-${m.seriesId}@meetapp`;
+  }
+
   const hostName = m.host?.name ?? "Someone";
   const minutes = m.durationMin ?? 30;
-  const when = formatWhen(m.scheduledFor, timeZone);
-  const cancelling = kind === "cancelled" || kind === "removed";
-  const base = cancelling ? cancelEmail(hostName, m.title, when, kind === "removed") : inviteEmail(hostName, m.title, when, minutes, link, kind === "updated");
-  await sendEmails(
-    to.map((email) => ({
-      ...base,
+  const one = kind === "cancelled-one";
+  const when =
+    repeat && !one
+      ? `${repeat.freq === "WEEKLY" ? "Weekly" : "Daily"}, ${repeat.count - repeat.skip.length} times, from ${formatWhen(start, timeZone)}`
+      : formatWhen(one ? m.scheduledFor : start, timeZone);
+  const cancelling = kind === "cancelled" || kind === "removed" || one;
+  const emails = await Promise.all(
+    to.map(async (email) => ({
+      ...(cancelling
+        ? cancelEmail(hostName, m.title, when, kind === "removed", one)
+        : inviteEmail(hostName, m.title, when, minutes, link, kind === "updated", await replyLinks(m.id, email))),
       to: email,
       replyTo: m.host?.email,
       icalEvent: {
         method: cancelling ? ("CANCEL" as const) : ("REQUEST" as const),
         content: inviteIcs({
-          uid: `${m.id}@meetapp`, // same event every time: calendars update or remove it
-          start: m.scheduledFor!,
+          uid,
+          start,
           minutes,
           title: m.title,
           description: `Join: ${link}`,
           url: link,
           organizer: { name: `${hostName} (MeetApp)`, email: env.SMTP_USER || "noreply@meetapp.invalid" },
           attendee: email,
-          sequence: m.inviteSequence,
+          sequence,
           method: cancelling ? "CANCEL" : "REQUEST",
+          repeat,
+          occurrence: one ? (m.scheduledFor ?? undefined) : undefined,
         }),
       },
     })),
   );
+  await sendEmails(emails);
   return { sent: to.length };
 }
 
@@ -112,19 +256,32 @@ function assertEditable(m: { status: string; cancelledAt: Date | null }) {
 /** What the edit form needs (host only). */
 export async function getSchedule(roomCode: string, access: Access) {
   const { meeting } = await authorize(roomCode, access, "host");
-  const invites = await prisma.invite.findMany({ where: { meetingId: meeting.id }, orderBy: { createdAt: "asc" }, select: { email: true } });
+  const invites = await prisma.invite.findMany({
+    where: { meetingId: meeting.id },
+    orderBy: { createdAt: "asc" },
+    select: { email: true, response: true },
+  });
+  const seriesLeft = meeting.seriesId
+    ? await prisma.meeting.count({ where: { seriesId: meeting.seriesId, status: "SCHEDULED", cancelledAt: null } })
+    : 0;
   return {
     title: meeting.title,
     scheduledFor: meeting.scheduledFor,
     durationMin: meeting.durationMin,
     invitees: invites.map((i) => i.email),
+    replies: invites.map((i) => ({ email: i.email, response: i.response })),
+    recurrence: meeting.recurrence,
+    seriesLeft,
     editable: !meeting.cancelledAt && meeting.status === "SCHEDULED",
   };
 }
 
 export type ScheduleChange = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
 
-/** Host edits a meeting that hasn't started; guests get updated invites, removed guests a cancellation. */
+/**
+ * Host edits a meeting that hasn't started; guests get updated invites, removed guests a cancellation.
+ * In a series the change applies to every upcoming meeting (a new time moves them all by the same amount).
+ */
 export async function updateSchedule(roomCode: string, access: Access, change: ScheduleChange) {
   const { meeting } = await authorize(roomCode, access, "host");
   assertEditable(meeting);
@@ -135,45 +292,72 @@ export async function updateSchedule(roomCode: string, access: Access, change: S
   const removed = [...old].filter((e) => !wanted.includes(e));
   const scheduledFor = change.scheduledFor ? new Date(change.scheduledFor) : meeting.scheduledFor;
   if (!scheduledFor && wanted.length) throw new AppError(400, "TIME_NEEDED", "Pick a date and time to send invites");
+  const timeChanged = change.scheduledFor !== undefined && +new Date(change.scheduledFor) !== +(meeting.scheduledFor ?? 0);
   const detailsChanged =
     (change.title !== undefined && change.title !== meeting.title) ||
-    (change.scheduledFor !== undefined && +new Date(change.scheduledFor) !== +(meeting.scheduledFor ?? 0)) ||
+    timeChanged ||
     (change.durationMin !== undefined && change.durationMin !== meeting.durationMin);
+  const shift = timeChanged && meeting.scheduledFor ? scheduledFor!.getTime() - meeting.scheduledFor.getTime() : 0;
 
   // the removed guests' cancellation must use the old details, so send those first
   if (removed.length && meeting.scheduledFor) {
-    await prisma.meeting.update({ where: { id: meeting.id }, data: { inviteSequence: { increment: 1 } } });
+    await bumpSequence(meeting);
     await sendInvites(meeting.id, change.timeZone, { kind: "removed", to: removed }).catch((err) => logger.error({ err }, "Removal emails failed"));
   }
 
-  const updated = await prisma.meeting.update({
+  const targets = meeting.seriesId
+    ? await prisma.meeting.findMany({ where: { seriesId: meeting.seriesId, status: "SCHEDULED" }, select: { id: true, scheduledFor: true } })
+    : [{ id: meeting.id, scheduledFor: meeting.scheduledFor }];
+  await prisma.$transaction(
+    targets.map((t) =>
+      prisma.meeting.update({
+        where: { id: t.id },
+        data: {
+          title: change.title ?? undefined,
+          scheduledFor: t.id === meeting.id ? scheduledFor : t.scheduledFor && new Date(t.scheduledFor.getTime() + shift),
+          durationMin: change.durationMin ?? meeting.durationMin ?? (scheduledFor ? 30 : null),
+          inviteSequence: detailsChanged ? { increment: 1 } : undefined,
+          reminderSentAt: timeChanged ? null : undefined,
+          invites: {
+            // a new time: earlier answers no longer count (like Teams)
+            updateMany: timeChanged ? { where: {}, data: { response: null, respondedAt: null } } : undefined,
+            deleteMany: removed.length ? { email: { in: removed } } : undefined,
+            create: added.map((email) => ({ email })),
+          },
+        },
+      }),
+    ),
+  );
+  const updated = await prisma.meeting.findUniqueOrThrow({
     where: { id: meeting.id },
-    data: {
-      title: change.title ?? undefined,
-      scheduledFor,
-      durationMin: change.durationMin ?? meeting.durationMin ?? (scheduledFor ? 30 : null),
-      inviteSequence: detailsChanged ? { increment: 1 } : undefined,
-      invites: {
-        deleteMany: removed.length ? { email: { in: removed } } : undefined,
-        create: added.map((email) => ({ email })),
-      },
-    },
     select: { id: true, title: true, roomCode: true, status: true, scheduledFor: true, durationMin: true },
   });
 
   const kept = wanted.filter((e) => old.has(e));
   if (detailsChanged && kept.length) sendLater(sendInvites(meeting.id, change.timeZone, { kind: "updated", to: kept }));
   if (added.length) sendLater(sendInvites(meeting.id, change.timeZone, { kind: "new", to: added }));
-  return { ...updated, invited: added.length, updated: detailsChanged ? kept.length : 0, removed: removed.length };
+  return { ...updated, invited: added.length, updated: detailsChanged ? kept.length : 0, removed: removed.length, occurrences: targets.length };
 }
 
-/** Host cancels a meeting that hasn't started: every guest gets a cancellation; the link stops working. */
-export async function cancelMeeting(roomCode: string, access: Access, timeZone?: string) {
+/**
+ * Host cancels a meeting that hasn't started: every guest gets a cancellation; the link stops working.
+ * In a series: `scope` "one" cancels just this meeting, "series" every upcoming one.
+ */
+export async function cancelMeeting(roomCode: string, access: Access, timeZone?: string, scope: "one" | "series" = "one") {
   const { meeting } = await authorize(roomCode, access, "host");
   assertEditable(meeting);
-  await prisma.meeting.update({ where: { id: meeting.id }, data: { cancelledAt: new Date(), inviteSequence: { increment: 1 } } });
+  const now = new Date();
+  const whole = !meeting.seriesId || scope === "series";
+  if (whole) await prisma.meeting.updateMany({ where: { ...upcoming(meeting), cancelledAt: null }, data: { cancelledAt: now } });
+  else await prisma.meeting.update({ where: { id: meeting.id }, data: { cancelledAt: now } });
+  await bumpSequence(meeting);
+  const left = meeting.seriesId
+    ? await prisma.meeting.count({ where: { seriesId: meeting.seriesId, status: "SCHEDULED", cancelledAt: null } })
+    : 0;
   const guests = await prisma.invite.count({ where: { meetingId: meeting.id } });
-  if (guests && meeting.scheduledFor) sendLater(sendInvites(meeting.id, timeZone, { kind: "cancelled" }));
+  // the last one of a series left: cancel the whole calendar series
+  const kind: InviteKind = whole || left === 0 ? "cancelled" : "cancelled-one";
+  if (guests && meeting.scheduledFor) sendLater(sendInvites(meeting.id, timeZone, { kind }));
   return { cancelled: true, notified: meeting.scheduledFor ? guests : 0 };
 }
 
@@ -293,6 +477,20 @@ export async function saveTranscript(roomCode: string, participantId: string, li
   return { saved: count };
 }
 
+/** Saves one chat message, sent by a participant who is in the meeting (name from our records). */
+export async function saveChat(roomCode: string, participantId: string, text: string) {
+  const participant = await prisma.participant.findFirst({
+    where: { id: participantId, meeting: { roomCode }, status: "ADMITTED" },
+    select: { id: true, name: true, meetingId: true },
+  });
+  if (!participant) throw new AppError(403, "NOT_IN_MEETING", "You are not a participant of this meeting");
+  const m = await prisma.chatMessage.create({
+    data: { meetingId: participant.meetingId, participantId: participant.id, senderName: participant.name, text },
+    select: { id: true },
+  });
+  return { id: m.id };
+}
+
 // ---------- ending, notes, transcript ----------
 
 export type Access = { participantId?: string; hostKey?: string; userId?: string };
@@ -354,12 +552,13 @@ export async function getNotes(roomCode: string, access: Access) {
     meeting.status = "ENDED";
   }
 
-  const [attendees, lineCount] = await Promise.all([
+  const [attendees, lineCount, chatCount] = await Promise.all([
     prisma.participant.findMany({ where: { meetingId: meeting.id, status: { in: ["ADMITTED", "REMOVED"] } }, distinct: ["name"], select: { name: true }, orderBy: { joinedAt: "asc" } }),
     prisma.transcript.count({ where: { meetingId: meeting.id } }),
+    prisma.chatMessage.count({ where: { meetingId: meeting.id } }),
   ]);
   const { hostKey: _secret, ...publicMeeting } = meeting;
-  return { meeting: publicMeeting, isHost, attendees: attendees.map((a) => a.name), lineCount, notes };
+  return { meeting: publicMeeting, isHost, attendees: attendees.map((a) => a.name), lineCount, chatCount, notes };
 }
 
 export async function regenerateNotes(roomCode: string, access: Access) {
@@ -382,6 +581,15 @@ export async function getTranscript(roomCode: string, access: Access) {
     where: { meetingId: meeting.id },
     orderBy: { spokenAt: "asc" },
     select: { id: true, speakerName: true, text: true, spokenAt: true },
+  });
+}
+
+export async function getChat(roomCode: string, access: Access) {
+  const { meeting } = await authorize(roomCode, access, "member");
+  return prisma.chatMessage.findMany({
+    where: { meetingId: meeting.id },
+    orderBy: { sentAt: "asc" },
+    select: { id: true, senderName: true, text: true, sentAt: true },
   });
 }
 
@@ -417,17 +625,26 @@ const listSelect = {
   scheduledFor: true,
   durationMin: true,
   hostId: true,
+  recurrence: true,
+  seriesId: true,
   notes: { select: { status: true, title: true, summary: true } },
-  _count: { select: { transcript: true, invites: true } },
+  invites: { select: { response: true } },
+  _count: { select: { transcript: true } },
   participants: { where: { status: ATTENDED }, distinct: ["name"], select: { name: true }, take: 8 },
 } satisfies Prisma.MeetingSelect;
 
 type ListRow = Prisma.MeetingGetPayload<{ select: typeof listSelect }>;
-const toItem = (userId: string) => ({ hostId, _count, participants, notes, ...m }: ListRow) => ({
+const toItem = (userId: string) => ({ hostId, _count, participants, notes, invites, ...m }: ListRow) => ({
   ...m,
   isHost: hostId === userId,
   lineCount: _count.transcript,
-  invitedCount: _count.invites,
+  invitedCount: invites.length,
+  // guests' answers, for the host
+  replies: hostId === userId ? {
+    yes: invites.filter((i) => i.response === "YES").length,
+    maybe: invites.filter((i) => i.response === "MAYBE").length,
+    no: invites.filter((i) => i.response === "NO").length,
+  } : null,
   attendees: participants.map((p) => p.name),
   notes: notes && { status: notes.status, title: notes.title, summary: notes.summary.slice(0, 220) },
 });

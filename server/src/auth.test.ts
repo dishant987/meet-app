@@ -33,6 +33,9 @@ function browser() {
     });
     const set = res.headers.get("set-cookie");
     if (set) cookie = set.split(";")[0]!.endsWith("=") ? "" : set.split(";")[0]!;
+    // test accounts confirm their email straight away (the confirmation flow has its own test)
+    if (path === "/auth/register" && res.status === 201)
+      await prisma.user.update({ where: { email: String((body as { email: string }).email).trim().toLowerCase() }, data: { emailVerifiedAt: new Date() } });
     return { status: res.status, setCookie: set, body: (await res.json()) as any };
   };
 }
@@ -101,4 +104,37 @@ test("signed-in host & member: host without key, notes from any device, My meeti
   assert.equal(memberList[0].isHost, false);
   assert.equal((await other("GET", "/meetings/mine")).body.data.total, 0);
   assert.equal((await browser()("GET", "/meetings/mine")).status, 401);
+});
+
+test("sessions: renewed while used, stop after 24 h unused, never last past 30 days", async () => {
+  const { SignJWT, decodeJwt } = await import("jose");
+  const key = new TextEncoder().encode(process.env.JWT_SECRET);
+  const addr = email();
+  await browser()("POST", "/auth/register", { name: "Ida", email: addr, password: "password-1" });
+  const u = await prisma.user.findUniqueOrThrow({ where: { email: addr } });
+  const now = Math.floor(Date.now() / 1000);
+  const token = (iat: number, exp: number, auth: number) =>
+    new SignJWT({ v: u.sessionVersion, auth }).setProtectedHeader({ alg: "HS256" }).setSubject(u.id).setIssuedAt(iat).setExpirationTime(exp).sign(key);
+  const me = async (t: string) => {
+    const r = await realFetch(`${base}/auth/me`, { headers: { cookie: `session=${t}` } });
+    return { user: (await r.json()).data, cookie: r.headers.get("set-cookie") };
+  };
+
+  // used 20 minutes after the last renewal: still signed in, and a fresh token comes back
+  const used = await me(await token(now - 20 * 60, now + 23 * 3600, now - 3600));
+  assert.equal(used.user.email, addr);
+  const fresh = decodeJwt(used.cookie!.split(";")[0]!.split("=")[1]!);
+  assert.ok(fresh.exp! - now > 23.9 * 3600); // another 24 h from now
+  assert.equal(fresh.auth, now - 3600); // keeps the original sign-in time
+
+  // just renewed: no new cookie on every request
+  assert.equal((await me(await token(now - 60, now + 24 * 3600, now - 60))).cookie, null);
+
+  // not used for over 24 h: the token has expired, signed out
+  assert.equal((await me(await token(now - 25 * 3600, now - 3600, now - 25 * 3600))).user, null);
+
+  // signed in almost 30 days ago: a renewal never goes past day 30
+  const old = now - 30 * 86_400 + 600;
+  const capped = await me(await token(now - 20 * 60, now + 600, old));
+  assert.equal(decodeJwt(capped.cookie!.split(";")[0]!.split("=")[1]!).exp, old + 30 * 86_400);
 });

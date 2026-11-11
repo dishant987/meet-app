@@ -292,7 +292,7 @@ function Chat({
       <ul ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3" aria-live="polite">
         {messages.length === 0 && (
           <li className="mt-6 px-4 text-center text-sm text-ink-500">
-            No messages yet. Messages are visible to everyone in the call and disappear when it ends.
+            No messages yet. Messages are visible to everyone in the call and are kept with the meeting notes.
           </li>
         )}
         {messages.map((m, i) => {

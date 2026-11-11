@@ -14,7 +14,7 @@ import { cn } from "cn";
 import { useAuth } from "@/lib/auth";
 import { errorMessage, meetingsApi, type MeetingsPage, type MyMeeting, type MyStats } from "@/lib/api";
 import { check, joinCodeForm } from "@/lib/validation";
-import { openLink, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
+import { guestsLabel, openLink, repeatLabel, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { useStartMeeting } from "@/lib/useStartMeeting";
 
@@ -84,7 +84,7 @@ function RecentRow({ m, onChanged }: { m: MyMeeting; onChanged: () => void }) {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{m.notes?.title || m.title}</span>
           <span className="block truncate text-xs text-muted-foreground">
-            {when(m)} · {roleLabel(m)}
+            {[when(m), roleLabel(m), repeatLabel(m), guestsLabel(m)].filter(Boolean).join(" · ")}
           </span>
         </span>
         <span className={cn("hidden shrink-0 rounded-lg px-2 py-1 text-xs font-semibold sm:inline", chip.cls)}>{chip.text}</span>

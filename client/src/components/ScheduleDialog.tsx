@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { CalendarCheck, CalendarPlus, Loader2 } from "lucide-react";
+import { CalendarCheck, CalendarPlus, Loader2, Repeat } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorMessage, fieldErrors, meetingsApi } from "@/lib/api";
+import { errorMessage, fieldErrors, meetingsApi, type Answer } from "@/lib/api";
 import { getHostKey, saveHostKey } from "@/lib/meetingAccess";
 import { check, scheduleForm, type FormErrors } from "@/lib/validation";
 
@@ -23,7 +23,12 @@ function nextSlot() {
   d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0);
   return { date: localDate(d), time: localTime(d) };
 }
-const blank = () => ({ title: "", ...nextSlot(), durationMin: "30", guests: "" });
+const blank = () => ({ title: "", ...nextSlot(), durationMin: "30", guests: "", repeat: "", repeatCount: "4" });
+const REPLY: Record<Answer, { label: string; cls: string }> = {
+  YES: { label: "Going", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
+  MAYBE: { label: "Maybe", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" },
+  NO: { label: "Not going", cls: "bg-red-500/15 text-red-700 dark:text-red-300" },
+};
 
 type Props = {
   /** Opens the dialog (schedule mode). Leave out when the parent controls `open`. */
@@ -48,6 +53,8 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [form, setForm] = useState(blank);
+  const [series, setSeries] = useState<{ recurrence: string; left: number } | null>(null);
+  const [replies, setReplies] = useState<{ email: string; response: Answer | null }[]>([]);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }));
     setErrors(({ [k]: _gone, form: _f, ...rest }) => rest);
@@ -69,7 +76,11 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
           ...(at ? { date: localDate(at), time: localTime(at) } : nextSlot()),
           durationMin: String(s.durationMin ?? 30),
           guests: s.invitees.join(", "),
+          repeat: "",
+          repeatCount: "4",
         });
+        setSeries(s.recurrence ? { recurrence: s.recurrence, left: s.seriesLeft } : null);
+        setReplies(s.replies);
         if (!s.editable) setErrors({ form: "This meeting has already started or was cancelled, so it can't be changed." });
       })
       .catch((err) => alive && setErrors({ form: errorMessage(err) }))
@@ -86,19 +97,22 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
     setBusy(true);
     try {
       if (editRoomCode) {
-        const r = await meetingsApi.updateSchedule(editRoomCode, { ...result.data, timeZone: timeZone() }, getHostKey(editRoomCode));
+        const { repeat: _r, repeatCount: _c, ...change } = result.data; // the repeat pattern isn't edited here
+        const r = await meetingsApi.updateSchedule(editRoomCode, { ...change, timeZone: timeZone() }, getHostKey(editRoomCode));
         const parts = [
           r.updated && `updates sent to ${people(r.updated)}`,
           r.invited && `invites sent to ${people(r.invited)}`,
           r.removed && `${people(r.removed)} told they're no longer invited`,
         ].filter(Boolean);
         const text = parts.join(", ");
-        toast.success(text ? `Saved. ${text[0]!.toUpperCase()}${text.slice(1)}.` : "Saved.");
+        const all = r.occurrences > 1 ? ` All ${r.occurrences} upcoming meetings in the series changed.` : "";
+        toast.success((text ? `Saved. ${text[0]!.toUpperCase()}${text.slice(1)}.` : "Saved.") + all);
       } else {
         const m = await meetingsApi.create({ ...result.data, timeZone: timeZone() });
         saveHostKey(m.roomCode, m.hostKey);
         const link = `${location.origin}/m/${m.roomCode}`;
-        toast.success(m.invited ? `Scheduled. Invites are on their way to ${people(m.invited)}.` : "Scheduled.", {
+        const what = m.occurrences > 1 ? `Scheduled ${m.occurrences} ${result.data.repeat === "DAILY" ? "daily" : "weekly"} meetings.` : "Scheduled.";
+        toast.success(m.invited ? `${what} Invites are on their way to ${people(m.invited)}.` : what, {
           action: { label: "Copy link", onClick: () => void navigator.clipboard?.writeText(link) },
         });
         setForm(blank());
@@ -173,6 +187,40 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
               </div>
             </div>
             {err("date") ?? err("time")}
+            {editing ? (
+              series && (
+                <p className="flex items-start gap-2 rounded-2xl bg-muted px-3 py-2.5 text-sm">
+                  <Repeat className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span>
+                    Repeats {series.recurrence === "DAILY" ? "daily" : "weekly"}. Changes apply to all {series.left} upcoming meetings in this
+                    series; a new time moves them all.
+                  </span>
+                </p>
+              )
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="s-repeat" className="text-sm font-medium">Repeat</label>
+                  <select id="s-repeat" className={field} value={form.repeat} onChange={set("repeat")}>
+                    <option value="">Doesn't repeat</option>
+                    <option value="DAILY">Every day</option>
+                    <option value="WEEKLY">Every week</option>
+                  </select>
+                </div>
+                {form.repeat && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="s-count" className="text-sm font-medium">How many meetings</label>
+                    <select id="s-count" className={field} value={form.repeatCount} onChange={set("repeatCount")}>
+                      {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => (
+                        <option key={n} value={n}>
+                          {n} meetings
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="space-y-1.5">
               <label htmlFor="s-guests" className="text-sm font-medium">
                 Guests <span className="font-normal text-muted-foreground">(optional)</span>
@@ -187,6 +235,15 @@ export function ScheduleDialog({ trigger, editRoomCode, open: openProp, onOpenCh
                 {...invalid("guests")}
               />
               {err("guests") ?? <p className="text-xs text-muted-foreground">Up to 20 emails, separated by commas or new lines.</p>}
+              {editing && replies.length > 0 && (
+                <ul aria-label="Guest replies" className="flex flex-wrap gap-1.5 pt-1">
+                  {replies.map((r) => (
+                    <li key={r.email} className={`max-w-full truncate rounded-lg px-2 py-1 text-xs font-medium ${r.response ? REPLY[r.response].cls : "bg-muted text-muted-foreground"}`}>
+                      {r.email} · {r.response ? REPLY[r.response].label : "No reply yet"}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             {err("form")}
             <button

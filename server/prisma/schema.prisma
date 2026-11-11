@@ -37,10 +37,19 @@ model Meeting {
   cancelledAt  DateTime?
   // Calendar invite version: bumped on every change so calendars update the same event instead of adding one
   inviteSequence Int     @default(0)
+  // Reminder email ("starts in 10 minutes") went out at this time
+  reminderSentAt DateTime?
+  // Recurring meetings: every occurrence is its own meeting (own link, notes) sharing one seriesId
+  seriesId     String?
+  recurrence   String?       // "DAILY" | "WEEKLY"
   participants Participant[]
+  chat         ChatMessage[]
   transcript   Transcript[]
   notes        Notes?
   recordings   Recording[]
+
+  @@index([seriesId])
+  @@index([status, scheduledFor])
 }
 
 model Participant {
@@ -52,6 +61,7 @@ model Participant {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   joinedAt  DateTime @default(now())
   lines     Transcript[]
+  messages  ChatMessage[]
   status    ParticipantStatus @default(ADMITTED)
   isHost    Boolean  @default(false)
   // Secret the waiting person's browser uses to ask "am I in yet?"; seenAt = last time it asked
@@ -174,7 +184,24 @@ model Invite {
   meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   email     String
   createdAt DateTime @default(now())
+  // Guest's answer from the invite email: "YES" | "MAYBE" | "NO" (empty = no answer yet)
+  response    String?
+  respondedAt DateTime?
 
   @@unique([meetingId, email])
   @@index([email])
+}
+
+// In-call chat, kept with the meeting (shown on the notes page)
+model ChatMessage {
+  id            String      @id @default(cuid())
+  meetingId     String
+  meeting       Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  senderName    String
+  text          String
+  sentAt        DateTime    @default(now())
+
+  @@index([meetingId, sentAt])
 }

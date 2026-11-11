@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as meeting from "../controllers/meeting.controller.js";
 import { validate } from "../middlewares/validate.js";
 import { inviteLimiter, limit } from "../middlewares/rateLimit.js";
-import { requireUser } from "../middlewares/auth.js";
+import { requireConfirmed } from "../middlewares/auth.js";
 import {
   createMeetingBody,
   answerBody,
@@ -18,6 +18,9 @@ import {
   roomCodeParams,
   startRecordingBody,
   transcriptBody,
+  chatBody,
+  rsvpBody,
+  seriesParams,
 } from "../validators/meeting.validator.js";
 import { notesContent } from "../services/notes.service.js";
 
@@ -25,8 +28,10 @@ export const meetingRoutes = Router();
 
 meetingRoutes.post("/", limit(20), validate({ body: createMeetingBody }), inviteLimiter, meeting.create);
 // before "/:roomCode" so "mine" / "stats" aren't read as codes
-meetingRoutes.get("/mine", requireUser, limit(120), validate({ query: myMeetingsQuery }), meeting.mine);
-meetingRoutes.get("/stats", requireUser, limit(60), meeting.stats);
+meetingRoutes.get("/mine", requireConfirmed, limit(120), validate({ query: myMeetingsQuery }), meeting.mine);
+meetingRoutes.get("/stats", requireConfirmed, limit(60), meeting.stats);
+meetingRoutes.post("/rsvp", limit(30), validate({ body: rsvpBody }), meeting.rsvp);
+meetingRoutes.get("/series/:seriesId/current", limit(60), validate({ params: seriesParams }), meeting.seriesCurrent);
 meetingRoutes.get("/:roomCode", validate({ params: roomCodeParams }), meeting.getByCode);
 meetingRoutes.post(
   "/:roomCode/token",
@@ -54,6 +59,8 @@ meetingRoutes.patch(
   validate({ params: roomCodeParams, body: hostBody.extend({ notes: notesContent }) }),
   meeting.updateNotes,
 );
+meetingRoutes.post("/:roomCode/chat", limit(60), validate({ params: roomCodeParams, body: chatBody }), meeting.saveChat);
+meetingRoutes.get("/:roomCode/chat", limit(30), validate({ params: roomCodeParams }), meeting.getChat);
 meetingRoutes.get("/:roomCode/transcript", limit(30), validate({ params: roomCodeParams }), meeting.getTranscript);
 meetingRoutes.post("/:roomCode/recordings", limit(10), validate({ params: roomCodeParams, body: startRecordingBody }), meeting.startRecording);
 meetingRoutes.post(

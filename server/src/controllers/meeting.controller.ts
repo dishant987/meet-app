@@ -5,19 +5,19 @@ import type { MyMeetingsQuery } from "../validators/meeting.validator.js";
 
 // Express 5 forwards rejected promises to errorHandler, so no try/catch here.
 
-/** Invites are emails sent in your name: only from a confirmed account. */
-function assertCanInvite(req: Request, invitees?: string[]) {
-  if (invitees?.length && !req.user?.emailVerified)
-    throw new AppError(403, "EMAIL_NOT_VERIFIED", "Confirm your email first to send invites. Check your inbox for our link.");
+/** Scheduling and invites (emails sent in your name): only from a confirmed account. */
+function assertCanInvite(req: Request, invitees?: string[], scheduledFor?: string) {
+  if ((invitees?.length || scheduledFor) && !req.user?.emailVerified)
+    throw new AppError(403, "EMAIL_NOT_VERIFIED", "Confirm your email first to schedule and send invites. Check your inbox for our link.");
 }
 
 export async function create(req: Request, res: Response) {
-  const { title, scheduledFor, durationMin, invitees, timeZone } = req.body;
+  const { title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount } = req.body;
   // scheduling and invites need an account (so emails can't be sent anonymously)
   if ((scheduledFor || invitees?.length) && !req.user)
     throw new AppError(401, "SIGN_IN_TO_SCHEDULE", "Sign in to schedule meetings and send invites");
-  assertCanInvite(req, invitees);
-  const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone }, req.user?.id);
+  assertCanInvite(req, invitees, scheduledFor);
+  const meeting = await meetingService.createMeeting({ title, scheduledFor, durationMin, invitees, timeZone, repeat, repeatCount }, req.user?.id);
   res.status(201).json({ success: true, data: meeting });
 }
 
@@ -58,6 +58,15 @@ export async function regenerateNotes(req: Request<{ roomCode: string }>, res: R
 
 export async function updateNotes(req: Request<{ roomCode: string }>, res: Response) {
   res.json({ success: true, data: await meetingService.updateNotes(req.params.roomCode, access(req), req.body.notes) });
+}
+
+export async function saveChat(req: Request<{ roomCode: string }>, res: Response) {
+  res.status(201).json({ success: true, data: await meetingService.saveChat(req.params.roomCode, req.body.participantId, req.body.text) });
+}
+
+export async function getChat(req: Request<{ roomCode: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.getChat(req.params.roomCode, access(req)) });
 }
 
 export async function getTranscript(req: Request<{ roomCode: string }>, res: Response) {
@@ -132,5 +141,16 @@ export async function updateSchedule(req: Request<{ roomCode: string }>, res: Re
 }
 
 export async function cancel(req: Request<{ roomCode: string }>, res: Response) {
-  res.json({ success: true, data: await meetingService.cancelMeeting(req.params.roomCode, access(req), req.body.timeZone) });
+  res.json({ success: true, data: await meetingService.cancelMeeting(req.params.roomCode, access(req), req.body.timeZone, req.body.scope) });
+}
+
+/** A guest answers Yes / Maybe / No from the link in their invite (no sign-in). */
+export async function rsvp(req: Request, res: Response) {
+  res.json({ success: true, data: await meetingService.answerInvite(req.body.token, req.body.answer) });
+}
+
+/** Series link: which meeting to open now. */
+export async function seriesCurrent(req: Request<{ seriesId: string }>, res: Response) {
+  res.set("cache-control", "no-store");
+  res.json({ success: true, data: await meetingService.currentInSeries(req.params.seriesId) });
 }

@@ -10,10 +10,10 @@ import { check, forgotForm, resetForm } from "@/lib/validation";
 
 const field =
   "h-12 w-full rounded-2xl border border-border bg-card px-4 placeholder:text-muted-foreground focus-visible:border-brand focus-visible:outline-none aria-invalid:border-destructive";
-const primary =
+export const primary =
   "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand font-semibold text-ink-950 transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:opacity-60";
 
-function Shell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+export function Shell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background bg-[radial-gradient(ellipse_at_top_right,oklch(0.9_0.19_125/0.1),transparent_45%)] px-4 py-6 sm:px-8">
       <div className="flex items-center justify-between">

@@ -35,6 +35,9 @@ function browser() {
     });
     const set = res.headers.get("set-cookie");
     if (set) cookie = set.split(";")[0]!;
+    // test accounts confirm their email straight away (the confirmation flow has its own test)
+    if (path === "/auth/register" && res.status === 201)
+      await prisma.user.update({ where: { email: String((body as { email: string }).email).trim().toLowerCase() }, data: { emailVerifiedAt: new Date() } });
     return { status: res.status, body: (await res.json().catch(() => null)) as any };
   };
   return Object.assign(call, { getCookie: () => cookie, setCookie: (c: string) => (cookie = c) });
@@ -104,7 +107,9 @@ test("notes are emailed once, one email per confirmed attendee (not guests, not 
   await member("POST", "/auth/register", { name: "Member", email: memberEmail, password: "password-1" });
   await prisma.user.updateMany({ where: { email: { in: [hostEmail, memberEmail] } }, data: { emailVerifiedAt: new Date() } });
   const unconfirmed = browser(); // signed up but never clicked the link: gets no notes email
-  await unconfirmed("POST", "/auth/register", { name: "Una", email: `una${unique()}@example.com`, password: "password-1" });
+  const unaEmail = `una${unique()}@example.com`;
+  await unconfirmed("POST", "/auth/register", { name: "Una", email: unaEmail, password: "password-1" });
+  await prisma.user.update({ where: { email: unaEmail }, data: { emailVerifiedAt: null } });
 
   const { roomCode } = (await host("POST", "/meetings", { title: "Sprint" })).body.data;
   const h = (await host("POST", `/meetings/${roomCode}/token`, { name: "Host" })).body.data;

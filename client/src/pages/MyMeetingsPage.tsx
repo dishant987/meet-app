@@ -8,7 +8,7 @@ import { Avatar } from "@/components/call/Avatar";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { errorMessage, meetingsApi, type MeetingsPage, type MeetingsQuery, type MyMeeting } from "@/lib/api";
-import { openLink, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
+import { guestsLabel, openLink, repeatLabel, roleLabel, statusChip, when } from "@/lib/meetingDisplay";
 import { useStartMeeting } from "@/lib/useStartMeeting";
 import { useIconHover } from "@/lib/useIconHover";
 
@@ -81,8 +81,7 @@ function MeetingCard({ m, onChanged }: { m: MyMeeting; onChanged: () => void }) 
           <div className="min-w-0">
             <p className="truncate text-lg font-semibold">{m.notes?.title || m.title}</p>
             <p className="text-sm text-muted-foreground">
-              {when(m)} · {roleLabel(m)}
-              {m.invitedCount > 0 && ` · ${m.invitedCount} invited`}
+              {[when(m), roleLabel(m), repeatLabel(m), guestsLabel(m)].filter(Boolean).join(" · ")}
             </p>
           </div>
           <span className={cn("shrink-0 rounded-lg px-2 py-1 text-xs font-semibold", chip.cls, canManage(m) && "mr-10")}>{chip.text}</span>

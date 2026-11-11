@@ -143,8 +143,39 @@ export function notesEmail(meetingTitle: string, dateLine: string, n: NotesForEm
   };
 }
 
+/** "Starts in 10 minutes" reminder, with the join button. */
+export function reminderEmail(title: string, minutes: number, link: string): Omit<Email, "to"> {
+  const soon = minutes <= 1 ? "now" : `in ${minutes} minutes`;
+  return {
+    subject: `Starting ${soon}: ${title}`,
+    html: layout(
+      `${title} starts ${soon}`,
+      `<p>Your MeetApp meeting <b>${esc(title)}</b> starts ${soon}.</p>${button(link, "Join now")}<p style="color:#5b5d68;font-size:14px">Or open this link: ${esc(link)}</p>`,
+      "You got this email because you were invited to this meeting.",
+    ),
+    text: `${title} starts ${soon}.
+
+Join: ${link}`,
+  };
+}
+
 /** Invite to a scheduled meeting (the .ics calendar part is added by the caller). */
-export function inviteEmail(hostName: string, title: string, when: string, minutes: number, link: string, updated = false): Omit<Email, "to"> {
+const replyButton = (href: string, label: string) =>
+  `<a href="${esc(href)}" style="display:inline-block;border:1px solid #d6d8de;border-radius:10px;padding:8px 14px;margin:0 6px 6px 0;color:#15161c;text-decoration:none;font-weight:bold;font-size:14px">${esc(label)}</a>`;
+
+export function inviteEmail(
+  hostName: string,
+  title: string,
+  when: string,
+  minutes: number,
+  link: string,
+  updated = false,
+  reply?: { yes: string; maybe: string; no: string },
+): Omit<Email, "to"> {
+  const going = reply
+    ? `<p style="margin:20px 0 6px;font-weight:bold">Going?</p><p style="margin:0">${replyButton(reply.yes, "Yes")}${replyButton(reply.maybe, "Maybe")}${replyButton(reply.no, "No")}</p>`
+    : "";
+  const goingText = reply ? `\n\nGoing? Yes: ${reply.yes}\nMaybe: ${reply.maybe}\nNo: ${reply.no}` : "";
   return {
     subject: `${updated ? "Updated invitation" : "Invitation"}: ${title} · ${when}`,
     html: layout(
@@ -154,16 +185,20 @@ export function inviteEmail(hostName: string, title: string, when: string, minut
 <tr><td style="color:#5b5d68;padding:4px 16px 4px 0">When</td><td>${esc(when)}</td></tr>
 <tr><td style="color:#5b5d68;padding:4px 16px 4px 0">Length</td><td>${minutes} minutes</td></tr>
 <tr><td style="color:#5b5d68;padding:4px 16px 4px 0">Link</td><td><a href="${esc(link)}" style="color:#15161c">${esc(link)}</a></td></tr>
-</table>${button(link, "Join meeting")}<p style="color:#5b5d68;font-size:14px">Use the invite to add it to your calendar. No account or app needed to join.</p>`,
+</table>${button(link, "Join meeting")}${going}<p style="color:#5b5d68;font-size:14px">Use the invite to add it to your calendar. No account or app needed to join.</p>`,
       `${hostName} invited you through MeetApp.`,
     ),
-    text: `${updated ? `${hostName} changed "${title}". New details:` : `${hostName} invited you to "${title}" on MeetApp.`}\n\nWhen: ${when}\nLength: ${minutes} minutes\nJoin: ${link}\n\nNo account or app needed to join.`,
+    text: `${updated ? `${hostName} changed "${title}". New details:` : `${hostName} invited you to "${title}" on MeetApp.`}\n\nWhen: ${when}\nLength: ${minutes} minutes\nJoin: ${link}${goingText}\n\nNo account or app needed to join.`,
   };
 }
 
 /** The meeting is off (cancelled, or this guest was removed). The .ics part removes it from their calendar. */
-export function cancelEmail(hostName: string, title: string, when: string, removed = false): Omit<Email, "to"> {
-  const what = removed ? `${esc(hostName)} removed you from this meeting.` : `${esc(hostName)} cancelled this meeting.`;
+export function cancelEmail(hostName: string, title: string, when: string, removed = false, oneOfSeries = false): Omit<Email, "to"> {
+  const what = removed
+    ? `${esc(hostName)} removed you from this meeting.`
+    : oneOfSeries
+      ? `${esc(hostName)} cancelled this one meeting. The other meetings in the series stay as planned.`
+      : `${esc(hostName)} cancelled this meeting.`;
   return {
     subject: `${removed ? "Removed" : "Cancelled"}: ${title} · ${when}`,
     html: layout(

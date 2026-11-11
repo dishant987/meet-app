@@ -43,3 +43,14 @@ export function openLink(m: MyMeeting) {
 
 /** Who you were in it. */
 export const roleLabel = (m: MyMeeting) => (m.isHost ? "You host" : m.attendees.length ? "You joined" : "You're invited");
+
+/** "Repeats weekly" for a series meeting. */
+export const repeatLabel = (m: MyMeeting) => (m.recurrence ? `Repeats ${m.recurrence === "DAILY" ? "daily" : "weekly"}` : "");
+
+/** For the host of an upcoming meeting: "3 invited · 2 going, 1 maybe". */
+export function guestsLabel(m: MyMeeting) {
+  if (!m.invitedCount) return "";
+  const r = m.replies;
+  const said = r ? [r.yes && `${r.yes} going`, r.maybe && `${r.maybe} maybe`, r.no && `${r.no} not going`].filter(Boolean).join(", ") : "";
+  return `${m.invitedCount} invited${said ? ` · ${said}` : ""}`;
+}

@@ -25,6 +25,7 @@ import { CaptionsOverlay, LanguagePicker } from "./CaptionsOverlay";
 import { stopRecording } from "@/lib/recorder";
 import { useHostControls, type HostControls } from "./useHostControls";
 import { useBackgroundEffect } from "@/lib/background";
+import { meetingsApi } from "@/lib/api";
 
 const keyOf = (t: TrackReferenceOrPlaceholder) => `${t.participant.identity}:${t.source}`;
 
@@ -120,7 +121,13 @@ function Call({ roomCode, title, participantId, isHost, host }: CallProps & { ho
     ],
     { onlySubscribed: false },
   );
-  const { chatMessages, send, isSending } = useChat();
+  const { chatMessages, send: sendLive, isSending } = useChat();
+  // everyone in the call gets it live; the sender also keeps it with the meeting (notes page)
+  const send = async (text: string) => {
+    const sent = await sendLive(text);
+    meetingsApi.saveChat(roomCode, participantId, text).catch(() => {});
+    return sent;
+  };
   const { floating, react } = useReactions();
   const captions = useCaptions(roomCode, participantId);
   const recording = participants.some((p) => p.attributes?.recording === "on");

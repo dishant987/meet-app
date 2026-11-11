@@ -80,7 +80,8 @@ export type Notes = NotesContent & {
   emailedAt: string | null;
   updatedAt: string;
 };
-export type NotesResponse = { meeting: Meeting; isHost: boolean; attendees: string[]; lineCount: number; notes: Notes | null };
+export type NotesResponse = { meeting: Meeting; isHost: boolean; attendees: string[]; lineCount: number; chatCount: number; notes: Notes | null };
+export type ChatRow = { id: string; senderName: string; text: string; sentAt: string };
 export type TranscriptRow = { id: string; speakerName: string; text: string; spokenAt: string };
 export type MyMeeting = Meeting & {
   isHost: boolean;
@@ -90,10 +91,25 @@ export type MyMeeting = Meeting & {
   lineCount: number;
   attendees: string[];
   notes: { status: Notes["status"]; title: string; summary: string } | null;
+  /** Recurring: every occurrence is its own meeting sharing a seriesId. */
+  recurrence: "DAILY" | "WEEKLY" | null;
+  seriesId: string | null;
+  /** Guests' answers (host only). */
+  replies: { yes: number; maybe: number; no: number } | null;
 };
+export type Answer = "YES" | "MAYBE" | "NO";
+export type InviteReply = { title: string; hostName: string | null; scheduledFor: string | null; durationMin: number | null; recurrence: string | null; answer: Answer | null; link: string };
 export type RecordingInfo = { id: string; mimeType: string; sizeBytes: number; durationSec: number; createdAt: string; playUrl: string; downloadUrl: string };
 /** Starting a meeting now, or scheduling one (with emailed calendar invites). */
-export type NewMeeting = { title?: string; scheduledFor?: string; durationMin?: number; invitees?: string[]; timeZone?: string };
+export type NewMeeting = {
+  title?: string;
+  scheduledFor?: string;
+  durationMin?: number;
+  invitees?: string[];
+  timeZone?: string;
+  repeat?: "DAILY" | "WEEKLY";
+  repeatCount?: number;
+};
 export type MeetingsQuery = {
   q: string;
   status: "all" | "live" | "upcoming" | "ended";
@@ -120,7 +136,7 @@ const hostHeaders = (hostKey?: string): Record<string, string> => (hostKey ? { "
 
 export const meetingsApi = {
   create: (body: NewMeeting = {}) =>
-    api.post<{ data: Meeting & { hostKey: string; invited: number } }>("/meetings", body).then((r) => r.data.data),
+    api.post<{ data: Meeting & { hostKey: string; invited: number; occurrences: number } }>("/meetings", body).then((r) => r.data.data),
   get: (roomCode: string) => api.get<{ data: Meeting }>(`/meetings/${roomCode}`).then((r) => r.data.data),
   join: (roomCode: string, name: string, hostKey?: string) =>
     api.post<{ data: JoinData | JoinWaiting }>(`/meetings/${roomCode}/token`, { name, hostKey }).then((r) => r.data.data),
@@ -152,7 +168,18 @@ export const meetingsApi = {
   /** Edit form data (host only). */
   getSchedule: (roomCode: string, hostKey?: string) =>
     api
-      .get<{ data: { title: string; scheduledFor: string | null; durationMin: number | null; invitees: string[]; editable: boolean } }>(
+      .get<{
+        data: {
+          title: string;
+          scheduledFor: string | null;
+          durationMin: number | null;
+          invitees: string[];
+          replies: { email: string; response: Answer | null }[];
+          recurrence: "DAILY" | "WEEKLY" | null;
+          seriesLeft: number;
+          editable: boolean;
+        };
+      }>(
         `/meetings/${roomCode}/schedule`,
         { headers: hostHeaders(hostKey) },
       )
@@ -160,12 +187,16 @@ export const meetingsApi = {
   /** Host changes a meeting that hasn't started; `invitees` is the whole new guest list. */
   updateSchedule: (roomCode: string, change: Omit<NewMeeting, "title"> & { title?: string }, hostKey?: string) =>
     api
-      .patch<{ data: Meeting & { invited: number; updated: number; removed: number } }>(`/meetings/${roomCode}/schedule`, { ...change, hostKey })
+      .patch<{ data: Meeting & { invited: number; updated: number; removed: number; occurrences: number } }>(`/meetings/${roomCode}/schedule`, { ...change, hostKey })
       .then((r) => r.data.data),
   /** Host cancels a meeting that hasn't started; guests get a cancellation. */
-  cancelMeeting: (roomCode: string, hostKey?: string) =>
+  cancelMeeting: (roomCode: string, hostKey?: string, scope: "one" | "series" = "one") =>
     api
-      .post<{ data: { cancelled: true; notified: number } }>(`/meetings/${roomCode}/cancel`, { hostKey, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+      .post<{ data: { cancelled: true; notified: number } }>(`/meetings/${roomCode}/cancel`, {
+        hostKey,
+        scope,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      })
       .then((r) => r.data.data),
   recordings: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: RecordingInfo[] }>(`/meetings/${roomCode}/recordings`, { headers }).then((r) => r.data.data),
@@ -177,6 +208,14 @@ export const meetingsApi = {
     api.post(`/meetings/${roomCode}/recordings/${id}/complete`, { hostKey }),
   transcript: (roomCode: string, headers: Record<string, string>) =>
     api.get<{ data: TranscriptRow[] }>(`/meetings/${roomCode}/transcript`, { headers }).then((r) => r.data.data),
+  /** Guest's Yes / Maybe / No from the invite email link (no sign-in). Leave out `answer` to just read it. */
+  reply: (token: string, answer?: Answer) => api.post<{ data: InviteReply }>("/meetings/rsvp", { token, answer }).then((r) => r.data.data),
+  seriesCurrent: (seriesId: string) =>
+    api.get<{ data: { roomCode: string } }>(`/meetings/series/${seriesId}/current`).then((r) => r.data.data),
+  chat: (roomCode: string, headers: Record<string, string>) =>
+    api.get<{ data: ChatRow[] }>(`/meetings/${roomCode}/chat`, { headers }).then((r) => r.data.data),
+  /** Keeps a sent chat message with the meeting (best effort: the call itself already delivered it). */
+  saveChat: (roomCode: string, participantId: string, text: string) => api.post(`/meetings/${roomCode}/chat`, { participantId, text }),
 };
 
 export { parseRoomCode } from "./validation";

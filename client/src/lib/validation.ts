@@ -107,6 +107,9 @@ export const scheduleForm = z
       .string()
       .transform((s) => [...new Set(s.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean))])
       .pipe(z.array(z.email("One of the guest emails isn't valid")).max(20, "Invite up to 20 people")),
+    // "" = doesn't repeat
+    repeat: z.enum(["", "DAILY", "WEEKLY"]).default(""),
+    repeatCount: z.coerce.number().int().min(2, "Repeat at least 2 times").max(12, "Repeat at most 12 times").default(4),
   })
   .transform((v, ctx) => {
     const start = new Date(`${v.date}T${v.time}`); // browser's local time
@@ -114,7 +117,13 @@ export const scheduleForm = z
     if (Number.isNaN(ms)) ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date and time" });
     else if (ms < Date.now() - 60_000) ctx.addIssue({ code: "custom", path: ["time"], message: "Pick a time in the future" });
     else if (ms > Date.now() + 365 * 86_400_000) ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date within the next year" });
-    return { title: v.title, scheduledFor: start.toISOString(), durationMin: v.durationMin, invitees: v.guests };
+    return {
+      title: v.title,
+      scheduledFor: start.toISOString(),
+      durationMin: v.durationMin,
+      invitees: v.guests,
+      ...(v.repeat ? { repeat: v.repeat, repeatCount: v.repeatCount } : {}),
+    };
   });
 
 // ---------- helper ----------

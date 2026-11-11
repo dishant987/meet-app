@@ -12,10 +12,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 process.env.SMTP_HOST = ""; // emails stay in the dev outbox
+process.env.CRON_SECRET = "test-cron-secret-0123456789";
 const { app } = await import("./app.js");
 const { prisma } = await import("./config/db.js");
 const { devOutbox } = await import("./services/email.service.js");
 const { inviteIcs, formatWhen } = await import("./services/calendar.service.js");
+const { sendDueReminders } = await import("./services/reminder.service.js");
 const server = app.listen(0);
 const base = `http://localhost:${(server.address() as AddressInfo).port}/api`;
 after(async () => {
@@ -140,6 +142,7 @@ test("my meetings: pages, search, status filter, counts, invited role, soonest s
   const { roomCode } = (await host("POST", "/meetings", { title: "Intro call", scheduledFor: inHours(5), invitees: [guestEmail] })).body.data;
   const guest = browser();
   await guest("POST", "/auth/register", { name: "Gia", email: guestEmail, password: "password-1" });
+  await prisma.user.update({ where: { email: guestEmail }, data: { emailVerifiedAt: new Date() } });
   const invited = (await guest("GET", "/meetings/mine?role=invited")).body.data.items;
   assert.deepEqual(invited.map((m: any) => m.roomCode), [roomCode]);
   assert.equal(invited[0].isHost, false);
@@ -223,11 +226,15 @@ test("email confirmation: link sent on sign-up; no invites until confirmed; link
   assert.equal(me.body.data.emailVerified, false);
   const token = await confirmLink(host.email);
 
-  // unconfirmed: can schedule, but not send invites
+  // unconfirmed: no scheduling, no invites, no dashboard data; quick meetings still work (like guests)
   const blocked = await host("POST", "/meetings", { title: "Sync", scheduledFor: inHours(5), invitees: ["x@example.com"] });
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error.code, "EMAIL_NOT_VERIFIED");
-  assert.equal((await host("POST", "/meetings", { title: "Solo", scheduledFor: inHours(5) })).status, 201);
+  assert.equal((await host("POST", "/meetings", { title: "Solo", scheduledFor: inHours(5) })).status, 403);
+  assert.equal((await host("GET", "/meetings/mine")).body.error.code, "EMAIL_NOT_VERIFIED");
+  assert.equal((await host("GET", "/meetings/stats")).status, 403);
+  assert.equal((await host("PATCH", "/me", { name: "X" })).status, 403);
+  assert.equal((await host("POST", "/meetings", { title: "Quick" })).status, 201);
 
   // resend: needs sign-in; sends a new link
   assert.equal((await browser()("POST", "/auth/resend-verification")).status, 401);
@@ -251,4 +258,142 @@ test("email confirmation: link sent on sign-up; no invites until confirmed; link
   const oldLink = await confirmLink(changer.email);
   await prisma.user.update({ where: { email: changer.email }, data: { email: `new${unique()}@example.com` } });
   assert.equal((await browser()("POST", "/auth/verify-email", { token: oldLink })).status, 400);
+});
+
+const mailsTo = (email: string, since: number) => devOutbox.slice(since).filter((m) => m.to === email);
+const replyLink = (text: string, a: "yes" | "maybe" | "no") => text.match(new RegExp(`rsvp\\?t=([\\w.-]+)&a=${a}`))?.[1];
+
+test("chat is kept with the meeting: only people in it can write and read it", async () => {
+  const host = await signedIn("Chen");
+  const { roomCode, hostKey } = (await host("POST", "/meetings", { title: "Chatty" })).body.data;
+  const me = (await host("POST", `/meetings/${roomCode}/token`, { name: "Chen", hostKey })).body.data;
+  assert.equal((await host("POST", `/meetings/${roomCode}/chat`, { participantId: me.participantId, text: "  Hello team  " })).status, 201);
+  assert.equal((await browser()("POST", `/meetings/${roomCode}/chat`, { participantId: "nope-not-real", text: "spam" })).status, 403);
+  assert.equal((await host("POST", `/meetings/${roomCode}/chat`, { participantId: me.participantId, text: "" })).status, 400);
+
+  const rows = (await host("GET", `/meetings/${roomCode}/chat`)).body.data;
+  assert.deepEqual(rows.map((r: any) => [r.senderName, r.text]), [["Chen", "Hello team"]]);
+  assert.equal((await browser()("GET", `/meetings/${roomCode}/chat`)).status, 403);
+  assert.equal((await host("GET", `/meetings/${roomCode}/notes`)).body.data.chatCount, 1);
+});
+
+test("reminders: once per meeting, 10-15 min before, to host + guests who didn't say no; cron needs the secret", async () => {
+  const host = await signedIn("Remi");
+  const yes = `yes${unique()}@example.com`;
+  const no = `no${unique()}@example.com`;
+  const made = await host("POST", "/meetings", { title: "Standup", scheduledFor: inHours(1), invitees: [yes, no] });
+  const far = await host("POST", "/meetings", { title: "Later", scheduledFor: inHours(5), invitees: [yes] });
+  await waitFor(() => devOutbox.some((m) => m.to === no && m.subject.includes("Standup")));
+  const noToken = replyLink(devOutbox.findLast((m) => m.to === no && m.subject.includes("Standup"))!.text, "no")!;
+  assert.equal((await browser()("POST", "/meetings/rsvp", { token: noToken, answer: "NO" })).status, 200);
+  // move it to 10 minutes from now
+  await prisma.meeting.update({ where: { roomCode: made.body.data.roomCode }, data: { scheduledFor: new Date(Date.now() + 10 * 60_000) } });
+
+  assert.equal((await browser()("GET", "/cron/reminders")).status, 401);
+  const before = devOutbox.length;
+  const run = await sendDueReminders();
+  assert.ok(run.emails >= 2);
+  const reminders = devOutbox.slice(before).filter((m) => m.subject.startsWith("Starting"));
+  const to = reminders.filter((m) => m.subject.includes("Standup")).map((m) => m.to).sort();
+  assert.deepEqual(to, [host.email, yes].sort()); // not to the one who said no
+  const standup = reminders.find((m) => m.subject.includes("Standup"))!;
+  assert.match(standup.subject, /in (9|10) minutes/);
+  assert.match(standup.text, new RegExp(`/m/${made.body.data.roomCode}`));
+  assert.equal(reminders.filter((m) => m.subject.includes("Later")).length, 0); // too far away
+
+  const again = devOutbox.length;
+  await sendDueReminders();
+  assert.equal(devOutbox.slice(again).filter((m) => m.subject.includes("Standup")).length, 0); // only once
+  assert.ok(far.body.data.roomCode);
+});
+
+test("guest replies: Yes / Maybe / No links; host sees counts; a new time clears them", async () => {
+  const host = await signedIn("Rana");
+  const guest = `g${unique()}@example.com`;
+  const since = devOutbox.length;
+  const { roomCode } = (await host("POST", "/meetings", { title: "Design review", scheduledFor: inHours(30), invitees: [guest] })).body.data;
+  await waitFor(() => mailsTo(guest, since).length > 0);
+  const mail = mailsTo(guest, since)[0]!;
+  assert.match(mail.html, /Going\?/);
+  const token = replyLink(mail.text, "maybe")!;
+
+  const read = await browser()("POST", "/meetings/rsvp", { token });
+  assert.equal(read.body.data.answer, null);
+  assert.equal(read.body.data.title, "Design review");
+  const ans = await browser()("POST", "/meetings/rsvp", { token, answer: "MAYBE" });
+  assert.equal(ans.body.data.answer, "MAYBE");
+  assert.equal(ans.body.data.link, `/m/${roomCode}`);
+  assert.equal((await browser()("POST", "/meetings/rsvp", { token: "x".repeat(40), answer: "YES" })).status, 400);
+
+  const item = (await host("GET", "/meetings/mine?status=upcoming")).body.data.items.find((m: any) => m.roomCode === roomCode);
+  assert.deepEqual(item.replies, { yes: 0, maybe: 1, no: 0 });
+  assert.deepEqual((await host("GET", `/meetings/${roomCode}/schedule`)).body.data.replies, [{ email: guest, response: "MAYBE" }]);
+
+  await host("PATCH", `/meetings/${roomCode}/schedule`, { scheduledFor: inHours(31) });
+  assert.deepEqual((await host("GET", `/meetings/${roomCode}/schedule`)).body.data.replies, [{ email: guest, response: null }]);
+});
+
+test("recurring: weekly series = separate meetings + one calendar series; series link; edit moves all; cancel one or all", async () => {
+  const host = await signedIn("Sami");
+  const guest = `s${unique()}@example.com`;
+  const start = inHours(48);
+  const since = devOutbox.length;
+  const bad = await host("POST", "/meetings", { title: "No time", repeat: "WEEKLY", repeatCount: 3 });
+  assert.equal(bad.status, 400);
+  const made = await host("POST", "/meetings", { title: "Weekly sync", scheduledFor: start, repeat: "WEEKLY", repeatCount: 3, invitees: [guest] });
+  assert.equal(made.status, 201);
+  assert.equal(made.body.data.occurrences, 3);
+
+  const list = (await host("GET", "/meetings/mine?status=upcoming&sort=soonest&q=Weekly%20sync")).body.data.items;
+  assert.equal(list.length, 3);
+  assert.ok(list.every((m: any) => m.recurrence === "WEEKLY" && m.seriesId === list[0].seriesId));
+  assert.equal(new Date(list[1].scheduledFor).getTime() - new Date(list[0].scheduledFor).getTime(), 7 * 86_400_000);
+
+  await waitFor(() => mailsTo(guest, since).length > 0);
+  const invites = mailsTo(guest, since);
+  assert.equal(invites.length, 1); // one email for the whole series
+  const ics = invites[0]!.icalEvent!.content;
+  assert.match(ics, /RRULE:FREQ=WEEKLY;COUNT=3/);
+  assert.match(ics, new RegExp(`UID:series-${list[0].seriesId}@meetapp`));
+  assert.match(invites[0]!.subject, /Weekly, 3 times/);
+  assert.match(ics.replace(/\r\n /g, ""), new RegExp(`/s/${list[0].seriesId}`));
+
+  // the series link opens the first one
+  assert.equal((await browser()("GET", `/meetings/series/${list[0].seriesId}/current`)).body.data.roomCode, list[0].roomCode);
+
+  // a reply counts for the whole series
+  const token = replyLink(invites[0]!.text, "yes")!;
+  await browser()("POST", "/meetings/rsvp", { token, answer: "YES" });
+  const again = (await host("GET", "/meetings/mine?status=upcoming&q=Weekly%20sync")).body.data.items;
+  assert.ok(again.every((m: any) => m.replies.yes === 1));
+
+  // cancel just the first: guest gets a one-meeting cancellation; the link moves on to the second
+  const s1 = devOutbox.length;
+  assert.equal((await host("POST", `/meetings/${list[0].roomCode}/cancel`, { scope: "one" })).status, 200);
+  await waitFor(() => mailsTo(guest, s1).length > 0);
+  const c1 = mailsTo(guest, s1)[0]!;
+  assert.match(c1.icalEvent!.content, /RECURRENCE-ID:/);
+  assert.match(c1.html, /this one meeting/);
+  assert.equal((await browser()("GET", `/meetings/series/${list[0].seriesId}/current`)).body.data.roomCode, list[1].roomCode);
+
+  // edit the second: time +1 h moves the third too; guests get one updated series
+  const s2 = devOutbox.length;
+  const moved = new Date(new Date(list[1].scheduledFor).getTime() + 3_600_000).toISOString();
+  const edit = await host("PATCH", `/meetings/${list[1].roomCode}/schedule`, { scheduledFor: moved, title: "Weekly sync v2" });
+  assert.equal(edit.body.data.occurrences, 3); // updates every not-started meeting of the series
+  const after = (await host("GET", "/meetings/mine?status=upcoming&sort=soonest&q=Weekly%20sync%20v2")).body.data.items;
+  assert.equal(after.length, 2);
+  assert.equal(new Date(after[1].scheduledFor).getTime(), new Date(list[2].scheduledFor).getTime() + 3_600_000);
+  await waitFor(() => mailsTo(guest, s2).length > 0);
+  const upd = mailsTo(guest, s2)[0]!;
+  assert.match(upd.subject, /^Updated invitation: Weekly sync v2/);
+  assert.match(upd.icalEvent!.content, /EXDATE:/); // the cancelled one stays off their calendar
+
+  // cancel the rest
+  const s3 = devOutbox.length;
+  await host("POST", `/meetings/${list[1].roomCode}/cancel`, { scope: "series" });
+  assert.equal((await host("GET", "/meetings/mine?q=Weekly%20sync")).body.data.items.length, 0);
+  assert.equal((await browser()("GET", `/meetings/series/${list[0].seriesId}/current`)).status, 410);
+  await waitFor(() => mailsTo(guest, s3).length > 0);
+  assert.doesNotMatch(mailsTo(guest, s3)[0]!.icalEvent!.content, /RECURRENCE-ID/); // the whole series
 });

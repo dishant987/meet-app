@@ -37,6 +37,9 @@ function browser() {
     });
     const set = res.headers.get("set-cookie");
     if (set) cookie = set.split(";")[0]!;
+    // test accounts confirm their email straight away (the confirmation flow has its own test)
+    if (path === "/auth/register" && res.status === 201)
+      await prisma.user.update({ where: { email: String((body as { email: string }).email).trim().toLowerCase() }, data: { emailVerifiedAt: new Date() } });
     return { status: res.status, body: (await res.json().catch(() => null)) as any };
   };
 }

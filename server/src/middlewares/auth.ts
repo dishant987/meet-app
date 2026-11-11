@@ -21,12 +21,26 @@ export const sessionCookie: CookieOptions = {
   maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
 };
 
-/** Adds req.user when a valid session cookie is present. Never blocks: guests can still use meetings. */
-export const loadUser: RequestHandler = async (req, _res, next) => {
+/** Adds req.user when a valid session cookie is present (and renews it while in use). Never blocks: guests can still use meetings. */
+export const loadUser: RequestHandler = async (req, res, next) => {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (typeof token === "string" && token) req.user = (await userFromToken(token)) ?? undefined;
+  if (typeof token === "string" && token) {
+    const session = await userFromToken(token);
+    req.user = session?.user;
+    if (session?.renewed) res.cookie(SESSION_COOKIE, session.renewed, sessionCookie);
+  }
   next();
 };
 
 export const requireUser: RequestHandler = (req, _res, next) =>
   next(req.user ? undefined : new AppError(401, "UNAUTHORIZED", "Please sign in"));
+
+/** Signed in AND email confirmed: the dashboard, meeting lists and profile. */
+export const requireConfirmed: RequestHandler = (req, _res, next) =>
+  next(
+    !req.user
+      ? new AppError(401, "UNAUTHORIZED", "Please sign in")
+      : !req.user.emailVerified
+        ? new AppError(403, "EMAIL_NOT_VERIFIED", "Confirm your email first. Check your inbox for our link.")
+        : undefined,
+  );

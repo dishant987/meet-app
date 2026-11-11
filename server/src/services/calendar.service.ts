@@ -34,6 +34,10 @@ export type CalendarEvent = {
   sequence?: number;
   /** REQUEST = invite or update; CANCEL = remove it from the guest's calendar. */
   method?: "REQUEST" | "CANCEL";
+  /** Recurring series: how it repeats, and occurrences that were cancelled. */
+  repeat?: { freq: "DAILY" | "WEEKLY"; count: number; skip?: Date[] };
+  /** Cancel just one occurrence of a series (its start time). */
+  occurrence?: Date;
 };
 
 export function inviteIcs(e: CalendarEvent, now = new Date()) {
@@ -49,8 +53,11 @@ export function inviteIcs(e: CalendarEvent, now = new Date()) {
       "BEGIN:VEVENT",
       `UID:${e.uid}`,
       `DTSTAMP:${icsTime(now)}`,
-      `DTSTART:${icsTime(e.start)}`,
-      `DTEND:${icsTime(end)}`,
+      ...(e.occurrence ? [`RECURRENCE-ID:${icsTime(e.occurrence)}`] : []),
+      `DTSTART:${icsTime(e.occurrence ?? e.start)}`,
+      `DTEND:${icsTime(e.occurrence ? new Date(e.occurrence.getTime() + e.minutes * 60_000) : end)}`,
+      ...(e.repeat && !e.occurrence ? [`RRULE:FREQ=${e.repeat.freq};COUNT=${e.repeat.count}`] : []),
+      ...(e.repeat?.skip?.length && !e.occurrence ? [`EXDATE:${e.repeat.skip.map(icsTime).join(",")}`] : []),
       `SUMMARY:${icsText(e.title)}`,
       `DESCRIPTION:${icsText(e.description)}`,
       `LOCATION:${icsText(e.url)}`,
